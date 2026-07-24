@@ -168,6 +168,18 @@ server.listen(PORT, () => {
   const Proposal = require('./models/Proposal');
   const Auction = require('./models/Auction');
 
+  // Aqua/SwapVM order-book bridge (opt-in; needs deployed router/builder config)
+  if (process.env.AQUA_ENABLED === 'true') {
+    try {
+      const { startAquaListener } = require('./services/aquaOrderbookService');
+      const { getProvider } = require('./config/ethers');
+      startAquaListener({ provider: getProvider() });
+      console.log('Aqua order-book listener started');
+    } catch (e) {
+      console.error('Failed to start Aqua listener:', e.message);
+    }
+  }
+
   // Start live ProposalCreated watcher if configured
   if (process.env.PROPOSAL_MANAGER_ADDRESS) {
     try {
