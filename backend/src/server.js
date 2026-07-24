@@ -171,9 +171,19 @@ server.listen(PORT, () => {
   // Aqua/SwapVM order-book bridge — trading settles on 1inch Aqua; we index it
   try {
     const { startAquaListener } = require('./services/aquaOrderbookService');
-    const { getProvider } = require('./config/ethers');
+    const { getProvider, getSigner } = require('./config/ethers');
     startAquaListener({ provider: getProvider() });
     console.log('Aqua order-book listener started');
+
+    // Attestor pushes volume-weighted TWAPs from Aqua fills for resolution
+    const attestor = getSigner();
+    if (attestor) {
+      const { startTwapPusher } = require('./services/twapPusherService');
+      startTwapPusher({ provider: getProvider(), signer: attestor });
+      console.log('TWAP pusher started');
+    } else {
+      console.warn('No PRIVATE_KEY set — TWAP pusher disabled (resolution needs it)');
+    }
   } catch (e) {
     console.error('Failed to start Aqua listener:', e.message);
   }
