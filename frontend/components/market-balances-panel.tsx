@@ -13,7 +13,7 @@ export function MarketBalancesPanel({ proposalId }: { proposalId: string }) {
   const { proposal } = useGetProposalById(proposalId)
   const chainId = useChainId()
 
-  const pyusdAddr = getContractAddress(chainId, 'PYUSD')
+  const pyusdAddr = getContractAddress(chainId, 'COLLATERAL')
   const yesToken = proposal?.yesToken as `0x${string}` | undefined
   const noToken = proposal?.noToken as `0x${string}` | undefined
 

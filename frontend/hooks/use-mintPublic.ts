@@ -19,7 +19,7 @@ export function useCreateOrder() {
   const chainId = useChainId()
   const publicClient = usePublicClient()
 
-  const pyusdAddress = useMemo(() => getContractAddress(chainId, 'PYUSD') as `0x${string}` | undefined, [chainId])
+  const pyusdAddress = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
   const [error, setError] = useState<string | null>(null)
   const [lastHash, setLastHash] = useState<string | null>(null)
   const [pyUSDBalance, setPyUSDBalance] = useState<bigint>(0n)

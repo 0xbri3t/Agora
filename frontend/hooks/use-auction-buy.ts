@@ -29,7 +29,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
 
   const auctionAddress = useMemo(() => (side === "YES" ? (yesAuctionAddr as `0x${string}`) : (noAuctionAddr as `0x${string}`)), [side, yesAuctionAddr, noAuctionAddr])
   const marketToken = useMemo(() => (side === "YES" ? (yesToken as `0x${string}`) : (noToken as `0x${string}`)), [side, yesToken, noToken])
-  const pyusd = useMemo(() => getContractAddress(chainId, 'PYUSD') as `0x${string}` | undefined, [chainId])
+  const pyusd = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
 
   const { data: cap } = useReadContract({ address: marketToken, abi: marketToken_abi, functionName: "cap" })
   const { data: totalSupply } = useReadContract({ address: marketToken, abi: marketToken_abi, functionName: "totalSupply" })
