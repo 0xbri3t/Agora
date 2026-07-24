@@ -11,20 +11,20 @@ import {ITreasury} from "../interfaces/ITreasury.sol";
 import {IProposal} from "../interfaces/IProposal.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @notice Buyer supplies PYUSD and receives YES/NO tokens at the linear price at that moment.
-/// @dev Collects PYUSD into Treasury and mints tokens to the buyer (mint-on-buy).
+/// @notice Buyer supplies COLLATERAL and receives YES/NO tokens at the linear price at that moment.
+/// @dev Collects COLLATERAL into Treasury and mints tokens to the buyer (mint-on-buy).
 contract DutchAuction is ReentrancyGuard, Ownable, IDutchAuction {
     using SafeERC20 for IERC20;
 
 
-    address       public immutable PYUSD;      
+    address       public immutable COLLATERAL;      
     MarketToken   public immutable MARKET_TOKEN;    // YES/NO token, in constructor we decide which one this auction is for
     address       public immutable TREASURY;
     address public immutable ATTESTOR;
 
     uint256 public immutable START_TIME;           
     uint256 public immutable END_TIME;             
-    int64 public immutable START_PRICE;       // starting price (PYUSD 6d per 1 token)
+    int64 public immutable START_PRICE;       // starting price (COLLATERAL 6d per 1 token)
     int8 public constant END_PRICE = 0;
     uint256 public immutable MIN_TO_OPEN;        // marketToken sold threshold to open market    
 
@@ -55,7 +55,7 @@ contract DutchAuction is ReentrancyGuard, Ownable, IDutchAuction {
     event AuctionisCanceled();
 
     constructor(
-        address _pyUSD,
+        address _collateral,
         address _marketToken,
         address _treasury,
         uint256 _duration,
@@ -64,7 +64,7 @@ contract DutchAuction is ReentrancyGuard, Ownable, IDutchAuction {
         address _attestor
     ) Ownable(msg.sender) {
         require(_startPrice >= 0, "bad prices"); 
-        PYUSD    = _pyUSD;
+        COLLATERAL    = _collateral;
         MARKET_TOKEN  = MarketToken(_marketToken);
         TREASURY  = _treasury;
         START_TIME    = block.timestamp;
@@ -90,7 +90,7 @@ contract DutchAuction is ReentrancyGuard, Ownable, IDutchAuction {
     }
 
 
-    /// @notice Current price (PYUSD, 6 decimals) per 1 token
+    /// @notice Current price (COLLATERAL, 6 decimals) per 1 token
     function priceNow() public view returns (uint256) {
         uint256 ts = block.timestamp;
         if (ts <= START_TIME) return uint256(uint64(START_PRICE));
@@ -106,8 +106,8 @@ contract DutchAuction is ReentrancyGuard, Ownable, IDutchAuction {
     }
 
 
-    /// @notice Buyer specifies how much PYUSD to spend and receives tokens at the current price.
-    /// @param _payAmount  PYUSD to spend (6 decimals)
+    /// @notice Buyer specifies how much COLLATERAL to spend and receives tokens at the current price.
+    /// @param _payAmount  COLLATERAL to spend (6 decimals)
     function buyLiquidity(
         uint256 _payAmount
     ) external nonReentrant {

@@ -2,11 +2,12 @@
 pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
+import {MockPyth} from "@pythnetwork/pyth-sdk-solidity/MockPyth.sol";
 import "../src/core/ProposalManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 
-/// @notice Simple mock ERC20 used as PYUSD collateral in tests
+/// @notice Simple mock ERC20 used as COLLATERAL collateral in tests
 contract MockERC20 is ERC20 {
     constructor() ERC20("MockUSD", "MUSD") {
         _mint(msg.sender, 1_000_000e18);
@@ -15,21 +16,31 @@ contract MockERC20 is ERC20 {
 
 contract ProposalManagerBasicTest is Test {
     ProposalManager public pm;
-    MockERC20 public pyusd;
+    MockERC20 public collateral;
     Proposal public proposalImpl;
 
     address public bob = makeAddr("bob");
     address public alice = makeAddr("alice");
     address public attestor = makeAddr("attestor");
 
-    address constant PYTH_CONTRACT = 0x4305FB66699C3B2702D4d05CF36551390A4c69C6;
+    address PYTH_CONTRACT; // MockPyth deployed in setUp
     bytes32 constant PYTH_ID = 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace;
 
     function setUp() public {
-        pyusd = new MockERC20();
+        // Deploy MockPyth with a live ETH/USD-style price so Proposal.initialize works locally
+        MockPyth mockPyth = new MockPyth(60, 1);
+        bytes[] memory updates = new bytes[](1);
+        updates[0] = mockPyth.createPriceFeedUpdateData(
+            0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace,
+            3000_00000000, 10_0000000, -8, 3000_00000000, 10_0000000, uint64(block.timestamp), uint64(block.timestamp)
+        );
+        mockPyth.updatePriceFeeds{value: mockPyth.getUpdateFee(updates)}(updates);
+        PYTH_CONTRACT = address(mockPyth);
+
+        collateral = new MockERC20();
         proposalImpl = new Proposal();
-        vm.label(address(pyusd), "pyUSD");
-        pm = new ProposalManager(address(pyusd), address(proposalImpl), attestor);
+        vm.label(address(collateral), "collateral");
+        pm = new ProposalManager(address(collateral), address(proposalImpl), attestor);
         vm.label(address(pm), "ProposalManager");
     }
 
