@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getWalletAddress, getChainId } = require('../config/ethers');
-const { syncProposalsFromManager, syncProposalsFromManagerFast, syncProposalByAddress } = require('../services/chainService');
+const { syncProposalsFromManagerFast, syncProposalByAddress } = require('../services/chainService');
 
 /**
  * @swagger
@@ -33,14 +33,12 @@ router.get('/info', async (_req, res) => {
   }
 });
 
-module.exports = router;
-
 /**
  * @swagger
  * /api/chain/sync/proposals:
  *   post:
  *     summary: Force-sync proposals from ProposalManager into DB
- *     description: Calls the on-chain ProposalManager, then reads each Proposal contract and upserts into MongoDB.
+ *     description: Reads all proposals from the on-chain ProposalManager and upserts them into MongoDB.
  *     tags: [Chain]
  *     responses:
  *       200:
@@ -79,50 +77,6 @@ router.post('/sync/proposals', async (_req, res) => {
 
 /**
  * @swagger
- * /api/chain/sync/proposals/fast:
- *   post:
- *     summary: Fast sync proposals from ProposalManager (direct processing like frontend)
- *     description: Uses optimized processing that mirrors frontend useGetAllProposals behavior
- *     tags: [Chain]
- *     responses:
- *       200:
- *         description: Fast sync results per proposal
- */
-router.post('/sync/proposals/fast', async (_req, res) => {
-  try {
-    const manager = process.env.PROPOSAL_MANAGER_ADDRESS;
-    if (!manager) return res.status(400).json({ error: 'PROPOSAL_MANAGER_ADDRESS not configured' });
-    const results = await syncProposalsFromManagerFast({ manager });
-    res.json({ manager, results, method: 'fast' });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/**
- * @swagger
- * /api/chain/sync/proposals/legacy:
- *   post:
- *     summary: Legacy sync proposals from ProposalManager (individual contract calls)
- *     description: Uses the original method with individual contract calls
- *     tags: [Chain]
- *     responses:
- *       200:
- *         description: Legacy sync results per proposal
- */
-router.post('/sync/proposals/legacy', async (_req, res) => {
-  try {
-    const manager = process.env.PROPOSAL_MANAGER_ADDRESS;
-    if (!manager) return res.status(400).json({ error: 'PROPOSAL_MANAGER_ADDRESS not configured' });
-    const results = await syncProposalsFromManager({ manager });
-    res.json({ manager, results, method: 'legacy' });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/**
- * @swagger
  * /api/chain/sync/proposal/{address}:
  *   post:
  *     summary: Force-sync a single Proposal by contract address
@@ -148,3 +102,5 @@ router.post('/sync/proposal/:address', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+module.exports = router;

@@ -3,28 +3,16 @@ const router = express.Router();
 const Order = require('../models/Order');
 const OrderBook = require('../models/OrderBook');
 const Proposal = require('../models/Proposal');
-const { verifyWalletSignature, requireWalletAddress } = require('../middleware/walletAuth');
-const { 
-  notifyOrderBookUpdate, 
-  notifyNewOrder, 
-  notifyOrderStatusChange,
-  notifyOrderMatched,
-  notifyMarketData,
+const { verifyWalletSignature } = require('../middleware/walletAuth');
+const {
+  notifyOrderBookUpdate,
   notifyUserOrdersUpdate
 } = require('../middleware/websocket');
 const PriceHistory = require('../models/PriceHistory');
 const TWAP = require('../models/TWAP');
 const { ethers } = require('ethers');
-const { getProvider } = require('../config/ethers');
-// New: chain apply-batch service
+const { getProvider, ERC20_MIN_ABI } = require('../config/ethers');
 const { submitFillToChain } = require('../services/applyBatchService');
-
-
-// Minimal ERC20 ABI for balance/decimals
-const ERC20_MIN_ABI = [
-  'function balanceOf(address) view returns (uint256)',
-  'function decimals() view returns (uint8)'
-];
 
 function normalizeSide(side) { if (side === 'yes') return 'approve'; if (side === 'no') return 'reject'; return side; }
 function isValidSide(side) { return ['approve', 'reject'].includes(side); }
@@ -36,20 +24,6 @@ function sideToKey(side) { return side === 'approve' ? 'yes' : 'no'; }
 // Cache for proposal token addresses to avoid repeated DB lookups
 const proposalTokenCache = new Map();
 const CACHE_TTL = 60000; // 1 minute cache
-
-// Helper to invalidate cache for a proposal
-function invalidateProposalCache(proposalId) {
-  const keysToDelete = [];
-  for (const key of proposalTokenCache.keys()) {
-    if (key.startsWith(`${proposalId}-`) || key === `proposal-${proposalId}`) {
-      keysToDelete.push(key);
-    }
-  }
-  keysToDelete.forEach(k => proposalTokenCache.delete(k));
-  if (keysToDelete.length > 0) {
-    console.log(`[CACHE] Invalidated ${keysToDelete.length} entries for proposal ${proposalId}`);
-  }
-}
 
 // Clean cache periodically
 setInterval(() => {
@@ -150,20 +124,6 @@ async function updateOrderBook(proposalId, side, io) {
     console.error('updateOrderBook error:', e.message);
     throw e;
   }
-}
-
-async function getBestSellPrice(proposalId, side) {
-  try {
-    const sells = await Order.find({
-      proposalId,
-      side,
-      orderType: 'sell',
-      status: { $in: ['open', 'partial'] }
-    }).select('price').lean();
-    if (!sells || sells.length === 0) return null;
-    const min = sells.reduce((m, o) => Math.min(m, Number(o.price || 0)), Number.POSITIVE_INFINITY);
-    return Number.isFinite(min) ? String(min) : null;
-  } catch (_) { return null; }
 }
 
 async function ensureSufficientBalance({ proposal, proposalId, side, orderType, orderExecution, price, amount, userAddress }) {
@@ -647,22 +607,22 @@ router.post('/:proposalId/:side/orders', verifyWalletSignature, async (req, res)
       return res.status(401).json({ error: 'User address not found in authentication' });
     }
 
-    if (!['approve', 'reject'].includes(side)) {
+    if (!isValidSide(side)) {
       return res.status(400).json({ error: 'Invalid side. Must be approve or reject' });
     }
 
-    if (!['buy', 'sell'].includes(orderType)) {
+    if (!isValidOrderType(orderType)) {
       return res.status(400).json({ error: 'Invalid orderType. Must be buy or sell' });
     }
 
-    if (!['limit', 'market'].includes(orderExecution)) {
+    if (!isValidOrderExecution(orderExecution)) {
       return res.status(400).json({ error: 'Invalid orderExecution. Must be limit or market' });
     }
 
     // Verify that the proposal exists by accepting multiple identifiers (internal id, on-chain id, or address)
     let proposal;
     const proposalCacheKey = `proposal-${proposalId}`;
-    
+
     // Try cache first
     const cachedProposal = proposalTokenCache.get(proposalCacheKey);
     if (cachedProposal && Date.now() - cachedProposal.timestamp < CACHE_TTL) {
@@ -670,19 +630,15 @@ router.post('/:proposalId/:side/orders', verifyWalletSignature, async (req, res)
     } else {
       // Fetch from DB
       try {
-        const pidNum = Number(proposalId);
-        const clauses = [{ proposalContractId: String(proposalId) }];
-        if (!Number.isNaN(pidNum)) clauses.push({ id: pidNum });
-        if (/^0x[a-fA-F0-9]{40}$/.test(String(proposalId))) clauses.push({ proposalAddress: String(proposalId).toLowerCase() });
-        proposal = await Proposal.findOne({ $or: clauses });
-        
+        proposal = await Proposal.findByAnyId(proposalId);
+
         // Cache the proposal
         if (proposal) {
           proposalTokenCache.set(proposalCacheKey, { data: proposal, timestamp: Date.now() });
         }
       } catch (_) {}
     }
-    
+
     if (!proposal) {
       return res.status(404).json({ error: `Proposal with id ${proposalId} not found` });
     }
@@ -690,11 +646,6 @@ router.post('/:proposalId/:side/orders', verifyWalletSignature, async (req, res)
     // Check if proposal has required fields
     if (!proposal.id || !proposal.admin) {
       return res.status(400).json({ error: 'Proposal data is incomplete' });
-    }
-
-    // Check if proposal is active
-    if (!proposal.isActive) {
-      // return res.status(400).json({ error: 'Proposal is not active for trading' });
     }
 
     // For market orders, price is not required but for limit we validate reqPrice
@@ -764,15 +715,6 @@ router.post('/:proposalId/:side/orders', verifyWalletSignature, async (req, res)
 
     // Notify user immediately via WebSocket
     try { if (io) notifyUserOrdersUpdate(io, userAddress, { reason: 'order-created', changedOrderId: order._id.toString() }); } catch (e) {}
-
-    // Notify new order creation via WebSocket
-    try {
-      if (io && typeof notifyNewOrder === 'function') {
-        notifyNewOrder(io, order);
-      }
-    } catch (notifyError) {
-      console.error('Error notifying new order:', notifyError);
-    }
 
     // IMPORTANT: Respond immediately to prevent frontend timeout
     res.status(201).json(order);
@@ -880,7 +822,6 @@ router.delete('/orders/:orderId', verifyWalletSignature, async (req, res) => {
 
     try { if (io) notifyUserOrdersUpdate(io, order.userAddress, { reason: 'order-cancelled', changedOrderId: order._id.toString() }); } catch (e) {}
     try { await updateOrderBook(order.proposalId, order.side, io); } catch (updateError) { console.error('Error updating order book after cancellation:', updateError); }
-    try { if (io && typeof notifyOrderStatusChange === 'function') { notifyOrderStatusChange(io, order, 'cancelled'); } } catch (notifyError) { console.error('Error notifying order status change:', notifyError); }
 
     res.json(order);
   } catch (error) {
@@ -1057,16 +998,13 @@ router.get('/:proposalId/:side/orders', async (req, res) => {
     const { proposalId } = req.params;
     let { side } = req.params;
 
-    // Normalize yes/no to approve/reject
-    if (side === 'yes') side = 'approve';
-    if (side === 'no') side = 'reject';
-
-    if (!['approve', 'reject'].includes(side)) {
+    side = normalizeSide(side);
+    if (!isValidSide(side)) {
       return res.status(400).json({ error: 'Invalid side. Must be approve/reject (or yes/no alias)' });
     }
 
-    // Verify proposal exists using on-chain contract id (string)
-    const proposal = await Proposal.findOne({ proposalContractId: proposalId });
+    // Verify proposal exists (internal id, on-chain id, or address)
+    const proposal = await Proposal.findByAnyId(proposalId);
     if (!proposal) {
       return res.status(404).json({ error: `Proposal with id ${proposalId} not found` });
     }
@@ -1253,7 +1191,6 @@ async function executeOrder(order, io) {
     });
 
     // Helpers for decimal math
-    const TEN18 = 10n ** 18n;
     const toUnits = (v, dec) => { try { return ethers.parseUnits(String(v ?? '0'), Number(dec)); } catch { return 0n; } };
     const fmt = (v, dec) => ethers.formatUnits(v, Number(dec));
 
@@ -1264,14 +1201,11 @@ async function executeOrder(order, io) {
       // Look up by multiple identifiers (order.proposalId may be internal id string)
       let proposalDoc;
       try {
-        const pidNum = Number(order.proposalId);
-        const clauses = [{ proposalContractId: String(order.proposalId) }];
-        if (!Number.isNaN(pidNum)) clauses.push({ id: pidNum });
-        if (/^0x[a-fA-F0-9]{40}$/.test(String(order.proposalId))) clauses.push({ proposalAddress: String(order.proposalId).toLowerCase() });
-        proposalDoc = await Proposal.findOne({ $or: clauses });
+        proposalDoc = await Proposal.findByAnyId(order.proposalId);
       } catch (_) {}
       const key = sideToKey(order.side);
-      const tokenAddr = proposalDoc?.auctions?.[key]?.marketToken;
+      const tokenAddr = (key === 'yes' ? proposalDoc?.yesToken : proposalDoc?.noToken)
+        || proposalDoc?.auctions?.[key]?.marketToken;
       const pyusdAddr = process.env.PYUSD_ADDRESS;
       if (tokenAddr && pyusdAddr) {
         const provider = getProvider();
@@ -1285,6 +1219,79 @@ async function executeOrder(order, io) {
         pyusdDec = Number(pd) || 6;
       }
     } catch {}
+
+    // Token scale for token<->PyUSD conversions (must match token decimals)
+    const tokenScale = 10n ** BigInt(tokenDec);
+
+    // Common per-trade side effects: record fills on both orders, persist the
+    // matched order, notify, store price history, and submit the fill on-chain.
+    const settleTrade = async (matchingOrder, tradeTokens) => {
+      matchingOrder.updatedAt = new Date();
+      matchingOrder.fills.push({
+        price: matchingOrder.price,
+        amount: fmt(tradeTokens, tokenDec), // token amount
+        timestamp: new Date(),
+        matchedOrderId: order._id.toString()
+      });
+      await matchingOrder.save();
+      try { if (io) notifyUserOrdersUpdate(io, matchingOrder.userAddress, { reason: 'order-updated', changedOrderId: matchingOrder._id.toString() }); } catch {}
+
+      if (order.orderExecution === 'market') order.price = matchingOrder.price;
+      order.fills.push({
+        price: matchingOrder.price,
+        amount: fmt(tradeTokens, tokenDec), // token amount
+        timestamp: new Date(),
+        matchedOrderId: matchingOrder._id.toString()
+      });
+
+      // Store trade price + volume for charts (volume = base token amount)
+      try {
+        await PriceHistory.create({
+          proposalId: order.proposalId,
+          side: order.side,
+          price: matchingOrder.price,
+          volume: fmt(tradeTokens, tokenDec),
+          timestamp: new Date()
+        });
+      } catch (e) {
+        console.error('PriceHistory (trade) create error:', e.message);
+      }
+
+      // Submit on-chain
+      try {
+        const buyOrder = order.orderType === 'buy' ? order : matchingOrder;
+        const sellOrder = order.orderType === 'buy' ? matchingOrder : order;
+        const tx = await submitFillToChain({
+          proposalId: order.proposalId,
+          side: order.side,
+          buyOrder,
+          sellOrder,
+          price: matchingOrder.price,
+          amount: fmt(tradeTokens, tokenDec)
+        });
+        console.log(`[applyBatch] tx sent: ${tx.hash}`);
+        const execTime = new Date();
+        try {
+          matchingOrder.txHash = tx.hash;
+          const mi = (matchingOrder.fills || []).length - 1;
+          if (mi >= 0) {
+            matchingOrder.fills[mi].txHash = tx.hash;
+            matchingOrder.fills[mi].timestampExecuted = execTime;
+            matchingOrder.fills[mi].isExecuted = true;
+          }
+          await matchingOrder.save();
+        } catch {}
+        order.txHash = tx.hash;
+        try {
+          const oi = (order.fills || []).length - 1;
+          if (oi >= 0) {
+            order.fills[oi].txHash = tx.hash;
+            order.fills[oi].timestampExecuted = execTime;
+            order.fills[oi].isExecuted = true;
+          }
+        } catch {}
+      } catch (e) { console.error('[applyBatch] send error:', e.message); }
+    };
 
     // Track remaining in native units of the order
     let remainingBuyPyusd = 0n; // for buy orders (in PyUSD decimals)
@@ -1305,9 +1312,6 @@ async function executeOrder(order, io) {
 
     for (const matchingOrder of matchingOrders) {
       // Stop if nothing left
-
-
-
       if (order.orderType === 'buy' && remainingBuyPyusd <= 0n) break;
       if (order.orderType === 'sell' && remainingSellTokens <= 0n) break;
 
@@ -1323,83 +1327,22 @@ async function executeOrder(order, io) {
         if (moAvailTokens <= 0n) continue;
 
         // How many tokens can buyer afford at this price?
-        const affordableTokens = (remainingBuyPyusd * TEN18) / price6; // in token 18d
+        const affordableTokens = (remainingBuyPyusd * tokenScale) / price6; // in token units
         const tradeTokens = affordableTokens < moAvailTokens ? affordableTokens : moAvailTokens;
         if (tradeTokens <= 0n) continue;
-        const pyusdSpent = (tradeTokens * price6) / TEN18; // in pyusd decimals
+        const pyusdSpent = (tradeTokens * price6) / tokenScale; // in pyusd decimals
 
-        // Update matching SELL order
+        // Update matching SELL order (filledAmount in tokens)
         const newMoFilled = moFilled + tradeTokens;
         matchingOrder.filledAmount = fmt(newMoFilled, tokenDec);
         matchingOrder.status = newMoFilled >= moAmt ? 'filled' : 'partial';
-        matchingOrder.updatedAt = new Date();
-        matchingOrder.fills.push({
-          price: matchingOrder.price,
-          amount: fmt(tradeTokens, tokenDec), // token amount
-          timestamp: new Date(),
-          matchedOrderId: order._id.toString()
-        });
-        await matchingOrder.save();
-        try { if (io) notifyUserOrdersUpdate(io, matchingOrder.userAddress, { reason: 'order-updated', changedOrderId: matchingOrder._id.toString() }); } catch {}
 
         // Update our BUY order (in PyUSD units)
         remainingBuyPyusd = remainingBuyPyusd > pyusdSpent ? (remainingBuyPyusd - pyusdSpent) : 0n;
         totalTokensExecuted += tradeTokens;
         totalPyusdExecuted += pyusdSpent;
-        if (order.orderExecution === 'market') order.price = matchingOrder.price;
-        order.fills.push({
-          price: matchingOrder.price,
-          amount: fmt(tradeTokens, tokenDec), // token amount
-          timestamp: new Date(),
-          matchedOrderId: matchingOrder._id.toString()
-        });
 
-        // Store trade price + volume for charts (volume = base token amount)
-        try {
-          await PriceHistory.create({
-            proposalId: order.proposalId,
-            side: order.side,
-            price: matchingOrder.price,
-            volume: fmt(tradeTokens, tokenDec),
-            timestamp: new Date()
-          });
-        } catch (e) {
-          console.error('PriceHistory (trade BUY) create error:', e.message);
-        }
-
-        // Submit on-chain
-        try {
-          const buyOrder = order; const sellOrder = matchingOrder;
-          const tx = await submitFillToChain({
-            proposalId: order.proposalId,
-            side: order.side,
-            buyOrder,
-            sellOrder,
-            price: matchingOrder.price,
-            amount: fmt(tradeTokens, tokenDec)
-          });
-          console.log(`[applyBatch] tx sent: ${tx.hash}`);
-          try {
-            const execTime = new Date();
-            matchingOrder.txHash = tx.hash;
-            const mi = (matchingOrder.fills || []).length - 1;
-            if (mi >= 0) {
-              matchingOrder.fills[mi].txHash = tx.hash;
-              matchingOrder.fills[mi].timestampExecuted = execTime;
-              matchingOrder.fills[mi].isExecuted = true;
-            }
-            await matchingOrder.save();
-          } catch {}
-          order.txHash = tx.hash;
-          try {
-            const oi = (order.fills || []).length - 1;
-            if (oi >= 0) {
-              order.fills[oi].txHash = tx.hash;
-              order.fills[oi].timestampExecuted = new Date();
-              order.fills[oi].isExecuted = true;
-            }
-          } catch {}
-        } catch (e) { console.error('[applyBatch] send error:', e.message); }
+        await settleTrade(matchingOrder, tradeTokens);
       } else {
         // Our order is SELL, opposite is BUY with PyUSD budget
         const moAmt6 = toUnits(matchingOrder.amount, pyusdDec);
@@ -1408,83 +1351,22 @@ async function executeOrder(order, io) {
         if (moBudget <= 0n) continue;
 
         // How many tokens can buyer afford?
-        const affordableTokens = (moBudget * TEN18) / price6;
+        const affordableTokens = (moBudget * tokenScale) / price6;
         const tradeTokens = remainingSellTokens < affordableTokens ? remainingSellTokens : affordableTokens;
         if (tradeTokens <= 0n) continue;
-        const pyusdSpent = (tradeTokens * price6) / TEN18; // in pyusd decimals
+        const pyusdSpent = (tradeTokens * price6) / tokenScale; // in pyusd decimals
 
         // Update matching BUY order (filledAmount in PyUSD)
         const newMoFilled6 = moFilled6 + pyusdSpent;
         matchingOrder.filledAmount = fmt(newMoFilled6, pyusdDec);
         matchingOrder.status = newMoFilled6 >= moAmt6 ? 'filled' : 'partial';
-        matchingOrder.updatedAt = new Date();
-        matchingOrder.fills.push({
-          price: matchingOrder.price,
-          amount: fmt(tradeTokens, tokenDec), // token amount
-          timestamp: new Date(),
-          matchedOrderId: order._id.toString()
-        });
-        await matchingOrder.save();
-        try { if (io) notifyUserOrdersUpdate(io, matchingOrder.userAddress, { reason: 'order-updated', changedOrderId: matchingOrder._id.toString() }); } catch {}
 
         // Update our SELL order (filledAmount in tokens)
         remainingSellTokens = remainingSellTokens > tradeTokens ? (remainingSellTokens - tradeTokens) : 0n;
         totalTokensExecuted += tradeTokens;
         totalPyusdExecuted += pyusdSpent;
-        if (order.orderExecution === 'market') order.price = matchingOrder.price;
-        order.fills.push({
-          price: matchingOrder.price,
-          amount: fmt(tradeTokens, tokenDec), // token amount
-          timestamp: new Date(),
-          matchedOrderId: matchingOrder._id.toString()
-        });
 
-        // Store trade price + volume for charts (volume = base token amount)
-        try {
-          await PriceHistory.create({
-            proposalId: order.proposalId,
-            side: order.side,
-            price: matchingOrder.price,
-            volume: fmt(tradeTokens, tokenDec),
-            timestamp: new Date()
-          });
-        } catch (e) {
-          console.error('PriceHistory (trade SELL) create error:', e.message);
-        }
-
-        // Submit on-chain
-        try {
-          const buyOrder = matchingOrder; const sellOrder = order;
-          const tx = await submitFillToChain({
-            proposalId: order.proposalId,
-            side: order.side,
-            buyOrder,
-            sellOrder,
-            price: matchingOrder.price,
-            amount: fmt(tradeTokens, tokenDec)
-          });
-          console.log(`[applyBatch] tx sent: ${tx.hash}`);
-          try {
-            const execTime = new Date();
-            matchingOrder.txHash = tx.hash;
-            const mi = (matchingOrder.fills || []).length - 1;
-            if (mi >= 0) {
-              matchingOrder.fills[mi].txHash = tx.hash;
-              matchingOrder.fills[mi].timestampExecuted = execTime;
-              matchingOrder.fills[mi].isExecuted = true;
-            }
-            await matchingOrder.save();
-          } catch {}
-          order.txHash = tx.hash;
-          try {
-            const oi = (order.fills || []).length - 1;
-            if (oi >= 0) {
-              order.fills[oi].txHash = tx.hash;
-              order.fills[oi].timestampExecuted = new Date();
-              order.fills[oi].isExecuted = true;
-            }
-          } catch {}
-        } catch (e) { console.error('[applyBatch] send error:', e.message); }
+        await settleTrade(matchingOrder, tradeTokens);
       }
     }
 
@@ -1508,13 +1390,8 @@ async function executeOrder(order, io) {
     order.updatedAt = new Date();
     await order.save();
 
-    // NEW: notify original user if anything executed or changed
+    // Notify original user if anything executed or changed
     try { if (io && (totalTokensExecuted > 0n || totalPyusdExecuted > 0n)) notifyUserOrdersUpdate(io, order.userAddress, { reason: 'order-updated', changedOrderId: order._id.toString() }); } catch (e) {}
-
-    // Notify clients if any execution happened
-    if (io && typeof notifyOrderMatched === 'function' && (totalTokensExecuted > 0n)) {
-      try { notifyOrderMatched(io, order); } catch (e) {}
-    }
 
     // Refresh order book snapshot after execution
     try { await updateOrderBook(order.proposalId, order.side, io); } catch (e) { console.error('[EXEC] Error updating order book after execution:', e); }

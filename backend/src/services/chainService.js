@@ -1,8 +1,7 @@
 // Simple chain service using ethers v6
-// - Read helpers (contract view calls)
 // - Write helper (internal only) with retry/fee-bump
-// - Batch execute for future filled orders array
-// - A monitor skeleton to watch filled orders and execute on-chain internally
+// - Proposal sync from ProposalManager + ProposalCreated watcher
+// - Auction finalize / proposal resolve monitors
 // Comments kept simple in English
 
 const { ethers } = require('ethers');
@@ -36,12 +35,6 @@ const PM_EVENT_ABI = [
 const PM_EVENT_IFACE = new ethers.Interface(PM_EVENT_ABI);
 const PM_EVENT_SIGNATURE = 'ProposalCreated(uint256,address,address,string)';
 const PM_EVENT_TOPIC = ethers.id(PM_EVENT_SIGNATURE);
-
-async function callView({ address, abi, method, args = [] }) {
-  if (!address || !abi || !method) throw new Error('Missing contract call params');
-  const contract = getContract(address, abi, false);
-  return await contract[method](...args);
-}
 
 // Helper: wait for receipt with timeout and polling
 async function waitForReceiptWithTimeout(provider, txHash, { timeoutMs = Number(process.env.TX_WAIT_TIMEOUT_MS || 60000), pollMs = 1500 } = {}) {
@@ -173,180 +166,6 @@ function stopPoll(name) {
   polls.delete(name);
 }
 
-function stopAllPolls() {
-  for (const [name, t] of polls) clearInterval(t);
-  polls.clear();
-}
-
-// Batch executor for filled book orders (future use)
-// Accepts an array of { address, abi, method, args }
-// Executes sequentially to avoid nonce collisions
-async function executeBatch(calls, { continueOnError = true } = {}) {
-  if (!Array.isArray(calls) || calls.length === 0) return [];
-  const out = [];
-  for (const c of calls) {
-    try {
-      const res = await sendTx(c);
-      out.push({ ok: true, hash: res.hash });
-    } catch (e) {
-      out.push({ ok: false, error: e.message });
-      if (!continueOnError) break;
-    }
-  }
-  return out;
-}
-
-// Monitor skeleton: check DB for orders with status 'filled-pending' and send on-chain in batch
-async function monitorFilledOrders(buildCallFromOrder) {
-  // buildCallFromOrder(order) -> { address, abi, method, args }
-  const Order = require('../models/Order');
-  const pending = await Order.find({ status: 'filled-pending' }).sort({ createdAt: 1 }).limit(50);
-  if (!pending.length) return 0;
-
-  const calls = [];
-  for (const ord of pending) {
-    try {
-      const call = await buildCallFromOrder(ord);
-      if (call) calls.push(call);
-    } catch (e) {
-      console.error('monitorFilledOrders buildCall error:', e.message);
-    }
-  }
-
-  const results = await executeBatch(calls);
-
-  // Update orders with tx hashes or errors
-  for (let i = 0; i < pending.length; i++) {
-    try {
-      const r = results[i];
-      if (!r) continue;
-      if (r.ok) {
-        await Order.findByIdAndUpdate(pending[i]._id, { txHash: r.hash, status: 'filled-sent' });
-      } else {
-        await Order.findByIdAndUpdate(pending[i]._id, { status: 'filled-error' });
-      }
-      } catch (e) {
-      console.error('monitorFilledOrders post-update error:', e.message);
-    }
-  }
-
-  return results.length;
-}
-
-// Fetch proposal data from chain and sync with DB
-// Input: { address, abi }
-// Output: { action: 'created'|'updated'|'unchanged'|'skipped', proposal?, reason? }
-async function syncProposalFromChain({ address, abi }) {
-  if (!address || !abi) throw new Error('address and abi are required');
-  const Proposal = require('../models/Proposal');
-  const contract = getContract(address, abi, false);
-
-  const tryRead = async (names, args = []) => {
-    for (const n of names) {
-      const fn = contract[n];
-      if (typeof fn === 'function') {
-        try { return await fn(...args); } catch (_) {}
-      }
-    }
-    return undefined;
-  };
-
-  const raw = {
-    id: await tryRead(['id', 'proposalId', 'getId']),
-    admin: await tryRead(['admin', 'getAdmin', 'owner']),
-    title: await tryRead(['title', 'name', 'getTitle']),
-    description: await tryRead(['description', 'getDescription']),
-    startTime: await tryRead(['startTime', 'getStartTime', 'auctionStartTime']),
-    endTime: await tryRead(['endTime', 'getEndTime', 'liveEnd', 'auctionEndTime']),
-    duration: await tryRead(['duration', 'getDuration', 'liveDuration']),
-    // subjectToken is the new name; keep old aliases just in case
-    subjectToken: await tryRead(['subjectToken', 'getSubjectToken', 'collateralToken', 'getCollateralToken']),
-    // maxSupply on older code; on-chain exposed as maxCap in new ABI
-    maxSupply: await tryRead(['maxSupply', 'cap', 'getMaxSupply', 'maxCap']),
-    target: await tryRead(['target', 'getTarget']),
-    data: await tryRead(['data', 'getData']),
-    marketAddress: await tryRead(['market', 'marketAddress', 'getMarket']),
-    proposalExecuted: await tryRead(['proposalExecuted', 'executed', 'isExecuted', 'getExecuted']),
-    proposalEnded: await tryRead(['proposalEnded', 'ended', 'isEnded', 'getEnded'])
-  };
-
-  const asNum = (v) => {
-    if (v === undefined || v === null) return undefined;
-    if (typeof v === 'bigint') return Number(v);
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  };
-  const asStr = (v) => {
-    if (v === undefined || v === null) return undefined;
-    return typeof v === 'bigint' ? v.toString() : String(v);
-  };
-  const asAddr = (v) => {
-    const s = asStr(v);
-    return s ? s.toLowerCase() : undefined;
-  };
-  const asBool = (v) => Boolean(v);
-
-  const onchain = {
-    // Store contract address
-    proposalAddress: address.toLowerCase(),
-    // Store on-chain proposal id as string
-    proposalContractId: raw.id !== undefined ? asStr(raw.id) : undefined,
-    admin: asAddr(raw.admin),
-    title: raw.title !== undefined ? asStr(raw.title) : undefined,
-    description: raw.description !== undefined ? asStr(raw.description) : undefined,
-    startTime: asNum(raw.startTime),
-    endTime: asNum(raw.endTime),
-    duration: asNum(raw.duration),
-    subjectToken: asAddr(raw.subjectToken),
-    maxSupply: raw.maxSupply !== undefined ? asStr(raw.maxSupply) : undefined,
-    target: asAddr(raw.target),
-    data: raw.data !== undefined ? asStr(raw.data) : undefined,
-    marketAddress: raw.marketAddress !== undefined ? asAddr(raw.marketAddress) : undefined,
-    proposalExecuted: raw.proposalExecuted !== undefined ? asBool(raw.proposalExecuted) : undefined,
-    proposalEnded: raw.proposalEnded !== undefined ? asBool(raw.proposalEnded) : undefined
-  };
-
-  if (!onchain.duration && onchain.startTime !== undefined && onchain.endTime !== undefined) {
-    onchain.duration = onchain.endTime - onchain.startTime;
-  }
-
-  // Find existing by address, or by on-chain id, else by internal id (not provided here)
-  let existing = await Proposal.findOne({ $or: [
-    { proposalAddress: onchain.proposalAddress },
-    onchain.proposalContractId ? { proposalContractId: onchain.proposalContractId } : null
-  ].filter(Boolean) });
-
-  if (!existing) {
-    // Require minimum fields to create
-    const required = ['admin', 'startTime', 'endTime', 'duration', 'subjectToken', 'maxSupply', 'target'];
-    const missing = required.filter(k => onchain[k] === undefined);
-    if (missing.length) {
-      return { action: 'skipped', reason: `missing fields: ${missing.join(', ')}` };
-    }
-    const created = new Proposal(onchain);
-    await created.save(); // pre-save sets internal id
-    return { action: 'created', proposal: created };
-  }
-
-  // Update changed fields
-  const updatableKeys = Object.keys(onchain).filter(k => onchain[k] !== undefined);
-  const toSet = {};
-  for (const k of updatableKeys) {
-    const newVal = onchain[k];
-    const oldVal = existing[k];
-    const isAddrField = ['admin','subjectToken','target','marketAddress','proposalAddress'].includes(k);
-    const eq = isAddrField ? (String(oldVal || '').toLowerCase() === String(newVal || '').toLowerCase()) : (String(oldVal ?? '') === String(newVal ?? ''));
-    if (!eq) toSet[k] = newVal;
-  }
-
-  if (Object.keys(toSet).length === 0) {
-    return { action: 'unchanged', proposal: existing };
-  }
-
-  const updated = await Proposal.findByIdAndUpdate(existing._id, { $set: toSet }, { new: true });
-  return { action: 'updated', proposal: updated };
-}
-
 // Process proposal data directly from getAllProposals response (like frontend)
 function processProposalFromManager(proposalData) {
   // State mapping like frontend but with lowercase values for DB
@@ -433,13 +252,6 @@ function processProposalFromManager(proposalData) {
     throw e;
   }
 }
-
-// ===== Minimal ABIs for manager/proposal/auction/token =====
-// Load directly from JSON files instead of hardcoding here
-const ABI_MANAGER = PM_ABI;
-const ABI_PROPOSAL = PROPOSAL_ABI;
-const ABI_AUCTION = AUCTION_ABI;
-const ABI_TOKEN_MIN = TOKEN_MIN_ABI;
 
 const toStr = (v) => (typeof v === 'bigint' ? v.toString() : String(v));
 const toNum = (v) => (typeof v === 'bigint' ? Number(v) : Number(v));
@@ -742,47 +554,6 @@ async function syncProposalByAddress(proposalAddress) {
   return { id: doc.id, address: proposalAddress, action: 'synced' };
 }
 
-// Sync all proposals from a ProposalManager
-async function syncProposalsFromManager({ manager }) {
-  const c = getContract(manager, PM_ABI, false);
-  // Returns an array of proposal structs like frontend useGetAllProposals
-  const proposals = await c.getAllProposals();
-  const results = [];
-  
-  console.log(`Manager returned ${Array.isArray(proposals) ? proposals.length : 0} proposals`);
-  
-  if (!Array.isArray(proposals)) {
-    console.error('getAllProposals did not return an array:', proposals);
-    return results;
-  }
-
-  // Process each proposal struct similar to frontend mapping
-  for (let i = 0; i < proposals.length; i++) {
-    const p = proposals[i];
-    try {
-      // Process proposal data directly from manager response
-      const processed = processProposalFromManager(p);
-      
-      if (!processed.proposalAddress || processed.proposalAddress === '0x0000000000000000000000000000000000000000') {
-        console.warn(`Proposal ${i}: invalid or missing proposalAddress`, p);
-        results.push({ index: i, error: 'invalid proposalAddress', proposal: p });
-        continue;
-      }
-
-      console.log(`Processing proposal ${i}: ${processed.proposalAddress}`);
-      
-      // Upsert directly using processed data instead of calling individual contracts
-      const doc = await upsertProposalAndAuctions(processed);
-      results.push({ id: doc.id, address: processed.proposalAddress, action: 'synced' });
-      
-    } catch (e) {
-      console.error(`Sync proposal error at index ${i}:`, e.message, p);
-      results.push({ index: i, error: e.message, proposal: p });
-    }
-  }
-  return results;
-}
-
 // Fast sync all proposals from manager using direct data processing (like frontend)
 async function syncProposalsFromManagerFast({ manager }) {
   const c = getContract(manager, PM_ABI, false);
@@ -846,61 +617,6 @@ async function syncProposalsFromManagerFast({ manager }) {
   return results;
 }
 
-// Subscribe to ProposalManager ProposalCreated and backfill
-async function startProposalManagerWatcher({ manager, fromBlock }) {
-  const provider = getProvider();
-  const abi = require('../abi/ProposalManager.json').abi;
-  const pm = new ethers.Contract(manager, abi, provider);
-
-  // Helper: process one event
-  const handleEvent = async (id, admin, proposal, title, log) => {
-    try {
-      const snap = await readProposalSnapshot(proposal);
-      // Set address and on-chain id explicitly
-      snap.proposalAddress = toAddr(proposal);
-      snap.proposalContractId = String(id);
-      // Fill title/description from event when available
-      if (!snap.title) snap.title = title || `Proposal #${snap.id}`;
-      if (!snap.description) snap.description = 'Synced from event';
-      await upsertProposalAndAuctions(snap);
-      return true;
-    } catch (e) {
-      console.error('handleEvent error:', e.message);
-      return false;
-    }
-  };
-
-  // Historical backfill using queryFilter
-  try {
-    const eventFrag = pm.interface.getEvent('ProposalCreated');
-    const topic = pm.interface.getEventTopic(eventFrag);
-    const filter = { address: manager, topics: [topic] };
-    const latest = await provider.getBlockNumber();
-
-    let start = Number(fromBlock || process.env.PM_FROM_BLOCK || 0);
-    const step = 2_000; // paginate to avoid RPC limits
-    while (start <= latest) {
-      const end = Math.min(start + step, latest);
-      const logs = await provider.getLogs({ ...filter, fromBlock: start, toBlock: end });
-      for (const log of logs) {
-        const parsed = pm.interface.parseLog(log);
-        const [id, admin, proposal, title] = parsed.args;
-        await handleEvent(Number(id), String(admin), String(proposal), String(title), log);
-      }
-      start = end + 1;
-    }
-  } catch (e) {
-    console.warn('PM backfill skipped:', e.message);
-  }
-
-  // Live subscription
-  pm.on('ProposalCreated', async (id, admin, proposal, title, ev) => {
-    await handleEvent(Number(id), String(admin), String(proposal), String(title), ev?.log ?? ev);
-  });
-
-  return true;
-}
-
 // --------------------
 // ProposalCreated watcher (backfill + live)
 // --------------------
@@ -934,9 +650,7 @@ async function handleProposalCreatedLog(io, log) {
   try {
     const parsed = PM_EVENT_IFACE.parseLog(log);
     const id = Number(parsed.args.id);
-    const admin = toLower(parsed.args.admin);
     const proposalAddr = toLower(parsed.args.proposal);
-    const title = String(parsed.args.title);
 
     const { syncProposalByAddress } = module.exports;
     const { notifyProposalUpdate } = require('../middleware/websocket');
@@ -1205,7 +919,7 @@ async function attemptResolveProposal(proposalAddress) {
   try {
     const { hash, receipt } = await sendTx({
       address: proposalAddress,
-      abi: ABI_PROPOSAL,
+      abi: PROPOSAL_ABI,
       method: 'resolve',
       args: []
     });
@@ -1217,7 +931,7 @@ async function attemptResolveProposal(proposalAddress) {
 
 async function canResolveProposal(proposalAddress) {
   try {
-    const c = getContract(proposalAddress, ABI_PROPOSAL, false);
+    const c = getContract(proposalAddress, PROPOSAL_ABI, false);
     const [stateBn, liveEndBn] = await Promise.all([
       c.state(),
       c.liveEnd()
@@ -1288,25 +1002,17 @@ async function monitorProposalsToResolve({ limit = 20 } = {}) {
 module.exports = {
   // Core contract helpers
   getContract,
-  callView,
   sendTx,
+  enqueueTx,
 
   // Polling utilities
   startPoll,
   stopPoll,
-  stopAllPolls,
-  executeBatch,
-
-  // Orderbook/filled orders
-  monitorFilledOrders,
 
   // Proposal sync and watchers
-  syncProposalFromChain,
   syncProposalByAddress,
-  syncProposalsFromManager,
   syncProposalsFromManagerFast,
   processProposalFromManager,
-  startProposalManagerWatcher,
   startProposalCreatedWatcher,
 
   // Auction finalize monitor + helpers
@@ -1317,9 +1023,5 @@ module.exports = {
   // Proposal resolve monitor + helpers
   monitorProposalsToResolve,
   attemptResolveProposal,
-  canResolveProposal,
-
-  // For testing
-  _getProvider: getProvider,
-  _getSigner: getSigner
+  canResolveProposal
 };

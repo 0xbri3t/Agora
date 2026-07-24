@@ -7,6 +7,13 @@ const { ethers } = require('ethers');
 // - PRIVATE_KEY: signer private key (for writes)
 // - CHAIN_ID: optional chain id (number)
 
+// Minimal ERC20 ABI shared by services/routes
+const ERC20_MIN_ABI = [
+  'function decimals() view returns (uint8)',
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)'
+];
+
 let provider;
 let signer; // Optional, only if PRIVATE_KEY is set
 
@@ -59,5 +66,6 @@ module.exports = {
   getProvider,
   getSigner,
   getWalletAddress,
-  getChainId
+  getChainId,
+  ERC20_MIN_ABI
 };

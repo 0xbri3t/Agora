@@ -1,4 +1,7 @@
 // WebSocket notification helpers
+// Note: public per-order broadcasts (new order, status change, match, market data)
+// are intentionally NOT emitted for privacy. Only top-of-book, proposal/auction
+// updates, and private per-user rooms are used.
 
 const notifyOrderBookUpdate = (io, proposalId, side, orderBook) => {
   try {
@@ -29,21 +32,6 @@ const notifyOrderBookUpdate = (io, proposalId, side, orderBook) => {
   }
 };
 
-const notifyNewOrder = (io, order) => {
-  // Public new-order broadcasts disabled intentionally
-  return;
-};
-
-const notifyOrderStatusChange = (io, order, oldStatus) => {
-  // Public order status broadcasts disabled intentionally
-  return;
-};
-
-const notifyOrderMatched = (io, buyOrder, sellOrder, matchedAmount, matchedPrice) => {
-  // Public match broadcasts disabled intentionally
-  return;
-};
-
 const notifyProposalUpdate = (io, proposal) => {
   // Keep proposal updates (no orderbook data included)
   io.to(`proposal-${proposal.id}`).emit('proposal-update', {
@@ -61,11 +49,6 @@ const notifyAuctionUpdate = (io, payload) => {
   });
 };
 
-const notifyMarketData = (io, proposalId, side, marketData) => {
-  // Public market data broadcasts disabled intentionally
-  return;
-};
-
 const notifyUserOrdersUpdate = (io, userAddress, payload = {}) => {
   if (!io || !userAddress) return;
   const address = userAddress.toLowerCase();
@@ -79,11 +62,7 @@ const notifyUserOrdersUpdate = (io, userAddress, payload = {}) => {
 
 module.exports = {
   notifyOrderBookUpdate,
-  notifyNewOrder,
-  notifyOrderStatusChange,
-  notifyOrderMatched,
   notifyProposalUpdate,
   notifyAuctionUpdate,
-  notifyMarketData,
   notifyUserOrdersUpdate
 };
