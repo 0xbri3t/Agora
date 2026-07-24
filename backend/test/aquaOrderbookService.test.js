@@ -108,6 +108,22 @@ describe('aquaOrderbookService', () => {
     expect(order.status).toBe('cancelled');
   });
 
+  test('loadMarketsFromDb registers markets from live proposals', async () => {
+    const Proposal = require('../src/models/Proposal');
+    await Proposal.deleteMany({});
+    await Proposal.create({
+      id: 77, proposalContractId: '77', proposalAddress: '0x' + '1'.repeat(40),
+      admin: '0x' + '2'.repeat(40), title: 't', description: 'd', state: 'live',
+      startTime: 1, endTime: 2, duration: 1, subjectToken: '0x' + '3'.repeat(40),
+      maxSupply: '1', target: '0x' + '0'.repeat(40), data: '0x',
+      yesToken: '0x' + 'a'.repeat(40), noToken: '0x' + 'b'.repeat(40),
+    });
+    const n = await svc.loadMarketsFromDb();
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(svc.lookupMarket('0x' + 'a'.repeat(40)).side).toBe('approve');
+    expect(svc.lookupMarket('0x' + 'b'.repeat(40)).side).toBe('reject');
+  });
+
   test('Shipped for an unregistered token is ignored', async () => {
     const { evt } = await shipAndGetEvent(13n);
     svc.registerMarket(h.yesAddress, { proposalId: PROPOSAL_ID, side: 'approve' }); // keep registered
