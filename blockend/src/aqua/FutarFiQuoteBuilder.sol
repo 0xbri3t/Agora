@@ -4,50 +4,37 @@ pragma solidity 0.8.30;
 import {ISwapVM} from "@1inch-swap-vm/src/interfaces/ISwapVM.sol";
 import {MakerTraitsLib} from "@1inch-swap-vm/src/libs/MakerTraits.sol";
 import {LimitOpcodes} from "@1inch-swap-vm/src/opcodes/LimitOpcodes.sol";
-import {Balances, BalancesArgsBuilder} from "@1inch-swap-vm/src/instructions/Balances.sol";
 import {LimitSwap, LimitSwapArgsBuilder} from "@1inch-swap-vm/src/instructions/LimitSwap.sol";
 import {Controls} from "@1inch-swap-vm/src/instructions/Controls.sol";
 import {Program, ProgramBuilder} from "@1inch-swap-vm/test/utils/ProgramBuilder.sol";
 
-/// @notice Builds FutarFi limit-quote SwapVM programs and Aqua-mode orders (swap-vm v1.0.1).
-/// @dev Program: _staticBalancesXD + _limitSwap1D + _salt, encoded via 1inch's own
-///      ProgramBuilder against the LimitOpcodes instruction table (no magic numbers).
-///      Price is the static balance ratio -> fixed across partial fills.
+/// @notice Builds FutarFi fill-or-kill lot quotes as Aqua-mode SwapVM orders (swap-vm v1.0.1).
+/// @dev In Aqua mode the VM preloads ctx balances from the strategy's SHIPPED virtual
+///      balances, so the shipped amounts [lotUsdc, lotToken] ARE the price and size.
+///      _limitSwapOnlyFull1D makes each lot all-or-nothing -> the price is exact by
+///      construction (no partial-fill drift). Partial-fill UX = ship a ladder of lots.
+///      Program: _limitSwapOnlyFull1D + _salt, encoded via 1inch's own ProgramBuilder
+///      against the LimitOpcodes instruction table (no magic numbers).
 contract FutarFiQuoteBuilder is LimitOpcodes {
     using ProgramBuilder for Program;
 
     constructor(address aqua) LimitOpcodes(aqua) {}
 
-    /// @notice Build the SwapVM bytecode for a resting limit quote.
+    /// @notice Build the SwapVM bytecode for one fill-or-kill lot quote.
+    /// @dev Price/size live in the ship() amounts, not in the program.
     /// @param usdc Quote/collateral token (6d)
     /// @param outcomeToken YES/NO market token (18d)
-    /// @param balUsdc Static USDC balance — with balToken encodes the price ratio
-    /// @param balToken Static outcome-token balance
-    /// @param salt Uniqueness so identical quotes hash differently
+    /// @param salt Uniqueness so identical lots hash differently (ladder lots differ by salt)
     function buildProgram(
         address usdc,
         address outcomeToken,
-        uint256 balUsdc,
-        uint256 balToken,
         bytes32 salt
     ) public view returns (bytes memory) {
         Program memory p = ProgramBuilder.init(_opcodes());
 
-        // StaticBalances args carry (tokens[], balances[]) sorted by token address.
-        (address tokenA, address tokenB, uint256 balA, uint256 balB) = usdc < outcomeToken
-            ? (usdc, outcomeToken, balUsdc, balToken)
-            : (outcomeToken, usdc, balToken, balUsdc);
-        address[] memory tokens = new address[](2);
-        tokens[0] = tokenA;
-        tokens[1] = tokenB;
-        uint256[] memory balances = new uint256[](2);
-        balances[0] = balA;
-        balances[1] = balB;
-
         return bytes.concat(
-            p.build(Balances._staticBalancesXD, BalancesArgsBuilder.build(tokens, balances)),
             // Maker sells outcomeToken for USDC -> maker's tokenIn = usdc, tokenOut = outcomeToken.
-            p.build(LimitSwap._limitSwap1D, LimitSwapArgsBuilder.build(usdc, outcomeToken)),
+            p.build(LimitSwap._limitSwapOnlyFull1D, LimitSwapArgsBuilder.build(usdc, outcomeToken)),
             p.build(Controls._salt, abi.encodePacked(salt))
         );
     }
