@@ -102,6 +102,8 @@ export interface UserOrder {
   filled: number
   status: OrderStatus
   timestamp: number
+  /** Aqua lot id — needed to cancel (dock) on-chain */
+  strategyHash?: string
 }
 
 export interface UserBalance {
