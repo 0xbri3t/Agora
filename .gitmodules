@@ -4,3 +4,12 @@
 [submodule "blockend/lib/openzeppelin-contracts"]
 	path = blockend/lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "blockend/lib/swap-vm"]
+	path = blockend/lib/swap-vm
+	url = https://github.com/1inch/swap-vm
+[submodule "blockend/lib/aqua"]
+	path = blockend/lib/aqua
+	url = https://github.com/1inch/aqua
+[submodule "blockend/lib/solidity-utils"]
+	path = blockend/lib/solidity-utils
+	url = https://github.com/1inch/solidity-utils
