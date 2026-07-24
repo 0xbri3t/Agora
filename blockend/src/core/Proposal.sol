@@ -38,7 +38,7 @@ contract Proposal is Ownable, IProposal {
     uint256 public maxCap;
 
     // auctions / tokens / implementations
-    address public pyUSD;
+    address public collateral;
     DutchAuction public yesAuction;
     DutchAuction public noAuction;
     MarketToken public yesToken;
@@ -64,7 +64,7 @@ contract Proposal is Ownable, IProposal {
     error NotAuction();
     error AlreadyInitialized();
     error InvalidAdmin();
-    error InvalidPyUSD();
+    error InvalidCollateral();
     error InvalidPythAddress();
     error InvalidMinMax(uint256 minToOpen, uint256 maxCap);
     error InvalidAuctionDuration(uint256 auctionDuration);
@@ -109,7 +109,7 @@ contract Proposal is Ownable, IProposal {
         uint256 _auctionDuration,
         uint256 _liveDuration,
         string memory _subjectToken,
-        address _pyUSD,
+        address _collateral,
         uint256 _minToOpen,
         uint256 _maxCap,
         address _target,
@@ -120,7 +120,7 @@ contract Proposal is Ownable, IProposal {
     ) external {
         if (_initialized) revert AlreadyInitialized();
         if (_admin == address(0)) revert InvalidAdmin();
-        if (_pyUSD == address(0)) revert InvalidPyUSD();
+        if (_collateral == address(0)) revert InvalidCollateral();
         if (_pythContract == address(0)) revert InvalidPythAddress();
 
         if (_minToOpen > _maxCap) revert InvalidMinMax(_minToOpen, _maxCap);
@@ -137,7 +137,7 @@ contract Proposal is Ownable, IProposal {
         auctionEndTime    = block.timestamp + _auctionDuration;
 
         subjectToken = _subjectToken;
-        pyUSD = _pyUSD;
+        collateral = _collateral;
         liveDuration = _liveDuration;
         minToOpen = _minToOpen;
         maxCap = _maxCap;
@@ -147,7 +147,7 @@ contract Proposal is Ownable, IProposal {
         priceFeedId = _priceFeedId;
         attestor = _attestor;
 
-        treasury= new Treasury(pyUSD);
+        treasury= new Treasury(collateral);
 
         // Deploy market tokens for YES and NO (temporary minter = this Proposal, updated after auctions are deployed)
         yesToken = new MarketToken(
@@ -169,7 +169,7 @@ contract Proposal is Ownable, IProposal {
 
         // Deploy Dutch auctions for YES and NO (require token addresses in constructor)
         yesAuction = new DutchAuction(
-            pyUSD,
+            collateral,
             address(yesToken),
             address(treasury),
             _auctionDuration,
@@ -179,7 +179,7 @@ contract Proposal is Ownable, IProposal {
         );
 
         noAuction = new DutchAuction(
-            pyUSD,
+            collateral,
             address(noToken),
             address(treasury),
             _auctionDuration,
@@ -205,7 +205,7 @@ contract Proposal is Ownable, IProposal {
         return r;
     }
 
-    // Get the initial Pyth price feed and scale to 6 decimals (PYUSD 6d per token)
+    // Get the initial Pyth price feed and scale to 6 decimals (COLLATERAL 6d per token)
     function getPythPriceFeed(bytes32 _priceFeedId) private view returns (int64) {
         PythStructs.Price memory price = pyth.getPriceUnsafe(_priceFeedId);
         if (price.price <= 0) revert PriceNotPositive(price.price);
@@ -271,13 +271,13 @@ contract Proposal is Ownable, IProposal {
             if (t.tokenAmount == 0) revert InvalidAmounts();
 
 
-            // Transfer PyUSD from buyer to seller
-            IERC20(pyUSD).safeTransferFrom(t.buyer, t.seller, t.pyUsdAmount);
+            // Transfer Collateral from buyer to seller
+            IERC20(collateral).safeTransferFrom(t.buyer, t.seller, t.collateralAmount);
 
             // Transfer outcome token from seller to buyer (must have allowance on outcome token)
             IERC20(t.outcomeToken).safeTransferFrom(t.seller, t.buyer, t.tokenAmount);
 
-            Treasury(treasury).transferBalance(t.seller, t.buyer, t.pyUsdAmount);
+            Treasury(treasury).transferBalance(t.seller, t.buyer, t.collateralAmount);
 
             // update TWAP prices
             if (t.outcomeToken == address(yesToken)) {

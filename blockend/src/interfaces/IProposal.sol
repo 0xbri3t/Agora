@@ -14,7 +14,7 @@ interface IProposal {
         address buyer;
         address outcomeToken;    // address of outcome token being traded (tYes or tNo)
         uint256 tokenAmount;     // amount of outcome tokens to be traded
-        uint256 pyUsdAmount;     // total cost in PyUSD for the amount of outcome tokens 
+        uint256 collateralAmount;     // total cost in Collateral for the amount of outcome tokens 
         uint256 twapPrice;       // time-weighted average price of the outcome token
     }
 
@@ -26,7 +26,7 @@ interface IProposal {
         uint256 _auctionDuration,
         uint256 _liveDuration,
         string memory _subjectToken,
-        address _pyUSD,
+        address _collateral,
         uint256 _minToOpen,
         uint256 _maxCap,
         address _target,
@@ -51,7 +51,7 @@ interface IProposal {
     function liveEnd() external view returns (uint256);
     function liveDuration() external view returns (uint256);
     function subjectToken() external view returns (string memory);
-    function pyUSD() external view returns (address);
+    function collateral() external view returns (address);
     function minToOpen() external view returns (uint256);
     function maxCap() external view returns (uint256);
     function yesAuction() external view returns (DutchAuction);

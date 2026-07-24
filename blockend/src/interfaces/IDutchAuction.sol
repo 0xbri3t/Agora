@@ -14,7 +14,7 @@ interface IDutchAuction {
     function ATTESTOR() external view returns (address);
     function TREASURY() external view returns (address);
     function MARKET_TOKEN() external view returns (MarketToken);
-    function PYUSD() external view returns (address);
+    function COLLATERAL() external view returns (address);
     function START_TIME() external view returns (uint256);
     function END_TIME() external view returns (uint256);
     function START_PRICE() external view returns (int64);

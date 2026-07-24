@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
+import {MockPyth} from "@pythnetwork/pyth-sdk-solidity/MockPyth.sol";
 import "../src/core/Proposal.sol";
 import "../src/core/DutchAuction.sol";
 import "../src/interfaces/IProposal.sol";
@@ -10,7 +11,7 @@ import {ProposalManager} from "../src/core/ProposalManager.sol";
 import {TargetContractMock} from "./mocks/TargetContractMock.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 
-/// @notice Simple mock ERC20 used as PYUSD collateral in tests
+/// @notice Simple mock ERC20 used as COLLATERAL collateral in tests
 contract MockERC20 is ERC20 {
     constructor() ERC20("MockUSD", "MUSD") {
         _mint(msg.sender, 50_000_000e18);
@@ -21,22 +22,32 @@ contract MockERC20 is ERC20 {
 
 contract ProposalBasicTest is Test {
     ProposalManager public pm;
-    MockERC20 public pyusd;
+    MockERC20 public collateral;
     TargetContractMock public target;
     Proposal public proposal;
     address public attestor;
     address public alice;
     address public buyer;
 
-    address constant PYTH_CONTRACT = 0x4305FB66699C3B2702D4d05CF36551390A4c69C6;
+    address PYTH_CONTRACT; // MockPyth deployed in setUp
     bytes32 constant PYTH_ID = 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace;
 
     function setUp() public {
-        pyusd = new MockERC20();
+        // Deploy MockPyth with a live ETH/USD-style price so Proposal.initialize works locally
+        MockPyth mockPyth = new MockPyth(60, 1);
+        bytes[] memory updates = new bytes[](1);
+        updates[0] = mockPyth.createPriceFeedUpdateData(
+            0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace,
+            3000_00000000, 10_0000000, -8, 3000_00000000, 10_0000000, uint64(block.timestamp), uint64(block.timestamp)
+        );
+        mockPyth.updatePriceFeeds{value: mockPyth.getUpdateFee(updates)}(updates);
+        PYTH_CONTRACT = address(mockPyth);
+
+        collateral = new MockERC20();
         target = new TargetContractMock();
         attestor = makeAddr("attestor");
         proposal = new Proposal();
-        pm = new ProposalManager(address(pyusd), address(proposal), attestor);
+        pm = new ProposalManager(address(collateral), address(proposal), attestor);
         alice = makeAddr("alice");
         buyer = makeAddr("buyer");
     }
@@ -67,10 +78,10 @@ contract ProposalBasicTest is Test {
         Treasury treasuryInstance = proposal.treasury();
         address treasury = address(treasuryInstance);
 
-        // Give buyer some pyUSD and approve treasury to pull pyUSD when buying
-        pyusd.transfer(buyer, 1_000e18);
+        // Give buyer some collateral and approve treasury to pull collateral when buying
+        collateral.transfer(buyer, 1_000e18);
         vm.prank(buyer);
-        pyusd.approve(treasury, type(uint256).max);
+        collateral.approve(treasury, type(uint256).max);
 
         // Buyer buys a small amount (half a token) so it does NOT meet minToOpen
         uint256 payAmount = 500_000; // yields 0.5e18 tokens at price 1_000_000
@@ -100,19 +111,19 @@ contract ProposalBasicTest is Test {
         vm.prank(buyer);
         yesToken.approve(treasury, userTokens);
 
-        uint256 beforePy = pyusd.balanceOf(buyer);
+        uint256 beforePy = collateral.balanceOf(buyer);
         uint256 beforeYesTokens = yesToken.balanceOf(treasury);
-        uint256 beforePyTokens = pyusd.balanceOf(treasury);
+        uint256 beforePyTokens = collateral.balanceOf(treasury);
 
-        // Buyer calls auction.refundTokens() which will cause Treasury to refund PYUSD
+        // Buyer calls auction.refundTokens() which will cause Treasury to refund COLLATERAL
         vm.prank(buyer);
         yes.refundTokens();
 
-        // After refund, buyer should have no outcome tokens and should have received pyUSD refund
+        // After refund, buyer should have no outcome tokens and should have received collateral refund
         assertEq(yesToken.balanceOf(buyer), 0, "buyer has zero yes tokens after refund");
-        assertTrue(pyusd.balanceOf(buyer) > beforePy, "buyer received pyUSD refund");
+        assertTrue(collateral.balanceOf(buyer) > beforePy, "buyer received collateral refund");
         assertEq(yesToken.balanceOf(treasury), beforeYesTokens + userTokens, "treasury received yes tokens");
-        assertLt(pyusd.balanceOf(treasury), beforePyTokens, "treasury pyusd balance increased");
+        assertLt(collateral.balanceOf(treasury), beforePyTokens, "treasury collateral balance increased");
     }
 
 
@@ -149,12 +160,12 @@ contract ProposalBasicTest is Test {
         // Fund two buyers for the auctions and approve Treasury
         address buyerYes = makeAddr("buyerYes");
         address buyerNo = makeAddr("buyerNo");
-        pyusd.transfer(buyerYes,10_000_000e18 ); // enough for auction + later trades
-        pyusd.transfer(buyerNo, 10_000_000e18);
+        collateral.transfer(buyerYes,10_000_000e18 ); // enough for auction + later trades
+        collateral.transfer(buyerNo, 10_000_000e18);
         vm.prank(buyerYes);
-        pyusd.approve(treasury, type(uint256).max);
+        collateral.approve(treasury, type(uint256).max);
         vm.prank(buyerNo);
-        pyusd.approve(treasury, type(uint256).max);
+        collateral.approve(treasury, type(uint256).max);
 
         vm.prank(buyerYes);
         yes.buyLiquidity(2e18);  // buy to cap
@@ -178,18 +189,18 @@ contract ProposalBasicTest is Test {
         // Prepare secondary market batch to set TWAPs and trigger resolve
         address takerYes = makeAddr("takerYes");
         address takerNo = makeAddr("takerNo");
-        pyusd.transfer(takerYes, 10_000);
-        pyusd.transfer(takerNo, 10_000);
+        collateral.transfer(takerYes, 10_000);
+        collateral.transfer(takerNo, 10_000);
 
         // Approvals for Proposal to move funds in applyBatch
         vm.prank(buyerYes);
         yesToken.approve(address(proposal), type(uint256).max); // sell 0.2 YES
         vm.prank(takerYes);
-        pyusd.approve(address(proposal), 10_000);
+        collateral.approve(address(proposal), 10_000);
         vm.prank(buyerNo);
         noToken.approve(address(proposal), type(uint256).max);  // sell 0.2 NO
         vm.prank(takerNo);
-        pyusd.approve(address(proposal), 10_000);
+        collateral.approve(address(proposal), 10_000);
 
         // Force Proposal owner to be attestor so _executeTargetCalldata (onlyOwner) passes
         // vm.store(address(proposal), bytes32(uint256(0)), bytes32(uint256(uint160(attestor))));
@@ -205,7 +216,7 @@ contract ProposalBasicTest is Test {
             buyer: takerYes,
             outcomeToken: address(yesToken),
             tokenAmount: yesToken.balanceOf(buyerYes),
-            pyUsdAmount: 5_000,
+            collateralAmount: 5_000,
             twapPrice: 200
         });
         ops[1] = IProposal.Trade({
@@ -213,7 +224,7 @@ contract ProposalBasicTest is Test {
             buyer: takerNo,
             outcomeToken: address(noToken),
             tokenAmount: noToken.balanceOf(buyerNo),
-            pyUsdAmount: 4_000,
+            collateralAmount: 4_000,
             twapPrice: 100
         });
 
@@ -237,8 +248,8 @@ contract ProposalBasicTest is Test {
         uint256 balanceTakerNoTokenNoBefore = noToken.balanceOf(takerNo);
         uint256 balanceTreasuryTokenNoBefore = noToken.balanceOf(treasury);
 
-        uint256 balanceTakerNoPyUsdBefore = pyusd.balanceOf(takerNo);
-        uint256 balanceTreasuryNoPyUsdBefore = pyusd.balanceOf(treasury);
+        uint256 balanceTakerNoPyUsdBefore = collateral.balanceOf(takerNo);
+        uint256 balanceTreasuryNoPyUsdBefore = collateral.balanceOf(treasury);
         assertEq(Treasury(treasury).refundsEnabled(), true);
 
         vm.startPrank(takerNo);
@@ -247,8 +258,8 @@ contract ProposalBasicTest is Test {
         vm.stopPrank();
 
         assertEq(noToken.balanceOf(takerNo), 0, "after claiming, takerNo should have 0 noTokens");
-        assertGt(pyusd.balanceOf(takerNo), balanceTakerNoPyUsdBefore, "after claiming, takerNo should have more pyUSD");
+        assertGt(collateral.balanceOf(takerNo), balanceTakerNoPyUsdBefore, "after claiming, takerNo should have more collateral");
         assertEq(noToken.balanceOf(treasury), balanceTreasuryTokenNoBefore + balanceTakerNoTokenNoBefore, "after claiming, treasury should have more noTokens");
-        assertLt(pyusd.balanceOf(treasury), balanceTreasuryNoPyUsdBefore, "after claiming, treasury should have less pyUSD");
+        assertLt(collateral.balanceOf(treasury), balanceTreasuryNoPyUsdBefore, "after claiming, treasury should have less collateral");
     }
 }
