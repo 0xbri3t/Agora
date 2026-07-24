@@ -508,6 +508,17 @@ async function upsertProposalAndAuctions(snapshot) {
 
   const proposalIdStr = String(doc.id);
 
+  // Register Aqua markets when the proposal is (or becomes) live
+  if (doc.state === 'live' && doc.yesToken && doc.noToken) {
+    try {
+      const { registerMarket } = require('./aquaOrderbookService');
+      registerMarket(doc.yesToken, { proposalId: proposalIdStr, side: 'approve' });
+      registerMarket(doc.noToken, { proposalId: proposalIdStr, side: 'reject' });
+    } catch (e) {
+      console.error('Aqua market registration failed:', e.message);
+    }
+  }
+
   // Upsert Auction docs (without maxTokenCap/minTokenCap)
   const upsertAuction = async (side, a) => {
     if (!a || !a.auctionAddress) return;

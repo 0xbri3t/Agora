@@ -113,8 +113,22 @@ async function processDockedEvent(evt) {
   return order;
 }
 
-/// Subscribe to live events (used at server startup when AQUA_ENABLED=true).
+/// Load live proposals' markets from Mongo (survives restarts).
+async function loadMarketsFromDb() {
+  const Proposal = require('../models/Proposal');
+  const live = await Proposal.find({ state: 'live' }).select('id yesToken noToken').lean();
+  for (const p of live) {
+    if (p.yesToken) registerMarket(p.yesToken, { proposalId: String(p.id), side: 'approve' });
+    if (p.noToken) registerMarket(p.noToken, { proposalId: String(p.id), side: 'reject' });
+  }
+  return live.length;
+}
+
+/// Subscribe to live events (used at server startup).
 function startAquaListener({ provider, cfg } = {}) {
+  loadMarketsFromDb()
+    .then((n) => n && console.log(`Aqua markets loaded from DB: ${n} live proposals`))
+    .catch((e) => console.error('loadMarketsFromDb error:', e.message));
   const c = cfg || defaultCfg;
   const aqua = new ethers.Contract(c.aquaAddress, AQUA_ABI, provider);
   const router = new ethers.Contract(c.routerAddress, ROUTER_ABI, provider);
@@ -145,5 +159,6 @@ module.exports = {
   processShippedEvent,
   processSwappedEvent,
   processDockedEvent,
+  loadMarketsFromDb,
   startAquaListener,
 };
