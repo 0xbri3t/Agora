@@ -174,6 +174,7 @@ FutarFi's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**:
 | LimitSwapVMRouter (our deployment) | [`0x4CF2713D08C5E439409b56efA4027F25EB0F6431`](https://sepolia.etherscan.io/address/0x4CF2713D08C5E439409b56efA4027F25EB0F6431) | Official SwapVM code; the canonical Sepolia router lacks limit opcodes |
 | FutarFiQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
 | MockUSDC (demo) | [`0x34ad23A27Ae8A562928234D4415eD7225a44bB2E`](https://sepolia.etherscan.io/address/0x34ad23A27Ae8A562928234D4415eD7225a44bB2E) | 6-decimals demo collateral |
+| ProposalManager | [`0xf9E1997Eb57845AC72A280d7317485006bAABB33`](https://sepolia.etherscan.io/address/0xf9E1997Eb57845AC72A280d7317485006bAABB33) | FutarFi governance stack (Pyth-priced proposals) |
 
 ### Live demo transactions (Sepolia)
 
