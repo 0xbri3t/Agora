@@ -2,15 +2,9 @@
 // Comments short in English
 
 const { ethers } = require('ethers');
-const { getProvider, getSigner } = require('../config/ethers');
+const { getProvider, getSigner, ERC20_MIN_ABI } = require('../config/ethers');
+const { enqueueTx, syncProposalByAddress } = require('./chainService');
 const ProposalABI = require('../abi/Proposal.json').abi;
-
-// Minimal ERC20 ABI
-const ERC20_MIN_ABI = [
-  'function decimals() view returns (uint8)',
-  'function balanceOf(address) view returns (uint256)',
-  'function allowance(address owner, address spender) view returns (uint256)'
-];
 
 function sideToKey(side) { return side === 'approve' ? 'yes' : 'no'; }
 
@@ -70,9 +64,8 @@ async function buildTradeOp({ proposalDoc, side, buyOrder, sellOrder, price, amo
   if (!tokenAddr) {
     console.log(`[applyBatch] Token address missing for ${side}, attempting sync of ${proposalDoc.proposalAddress}`);
     try {
-      const { syncProposalByAddress } = require('./chainService');
       await syncProposalByAddress(proposalDoc.proposalAddress);
-      
+
       // Reload proposal data
       const ProposalModel = require('../models/Proposal');
       const fresh = await ProposalModel.findOne({ 
@@ -140,10 +133,6 @@ function parseGwei(v) {
   try { return ethers.parseUnits(String(v), 9); } catch (_) { return undefined; }
 }
 
-// --- Simple in-process tx queue to prevent nonce races ---
-let txQueue = Promise.resolve();
-function enqueueTx(fn) { txQueue = txQueue.then(fn, fn); return txQueue; }
-
 async function sendApplyBatch(proposalAddress, ops) {
   const signer = getSigner();
   if (!signer) throw new Error('Signer not configured');
@@ -174,19 +163,16 @@ async function sendApplyBatch(proposalAddress, ops) {
     try { overrides.gasLimit = BigInt(process.env.GAS_LIMIT); } catch (_) {}
   }
 
-  // Pre-check: proposal state must be Live and signer must be attestor
-  try {
+  // Pre-check: signer must be attestor (when the contract exposes one)
+  {
     const pc = new ethers.Contract(proposalAddress, ProposalABI, provider);
-    const [state, attestor, signerAddr] = await Promise.all([
-      pc.state().catch(() => 0),
+    const [attestor, signerAddr] = await Promise.all([
       pc.attestor ? pc.attestor().catch(() => ethers.ZeroAddress) : ethers.ZeroAddress,
       signer.getAddress(),
     ]);
     if (attestor && attestor !== ethers.ZeroAddress && String(attestor).toLowerCase() !== String(signerAddr).toLowerCase()) {
       throw new Error('Signer is not attestor');
     }
-  } catch (e) {
-    throw e;
   }
 
   // Estimate gas if possible
@@ -230,21 +216,15 @@ async function sendApplyBatch(proposalAddress, ops) {
 
 async function submitFillToChain({ proposalId, side, buyOrder, sellOrder, price, amount }) {
   const ProposalModel = require('../models/Proposal');
-  
+
   // proposalId can be: internal id, contract id (string), or address
   let proposalDoc;
   try {
-    const pidNum = Number(proposalId);
-    const clauses = [{ proposalContractId: String(proposalId) }];
-    if (!Number.isNaN(pidNum)) clauses.push({ id: pidNum });
-    if (/^0x[a-fA-F0-9]{40}$/.test(String(proposalId))) {
-      clauses.push({ proposalAddress: String(proposalId).toLowerCase() });
-    }
-    proposalDoc = await ProposalModel.findOne({ $or: clauses }).lean();
+    proposalDoc = await ProposalModel.findByAnyId(proposalId).lean();
   } catch (e) {
     console.error(`[applyBatch] Error finding proposal: ${e.message}`);
   }
-  
+
   if (!proposalDoc?.proposalAddress) {
     throw new Error(`Proposal ${proposalId} not found or missing address`);
   }

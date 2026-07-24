@@ -3,6 +3,7 @@ const router = express.Router();
 const Proposal = require('../models/Proposal');
 const OrderBook = require('../models/OrderBook');
 const Auction = require('../models/Auction');
+const Order = require('../models/Order');
 const { verifyWalletSignature } = require('../middleware/walletAuth');
 const { notifyProposalUpdate, notifyAuctionUpdate } = require('../middleware/websocket');
 const { validateProposal } = require('../middleware/validation');
@@ -47,260 +48,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-/**
- * @swagger
- * /api/proposals/{id}:
- *   get:
- *     summary: Get proposal by ID
- *     tags: [Proposals]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Proposal ID
- *     responses:
- *       200:
- *         description: Proposal details
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Proposal'
- *       404:
- *         description: Proposal not found
- *       500:
- *         description: Server error
- */
-router.get('/:id', async (req, res) => {
-  try {
-    const proposal = await Proposal.findOne({ id: req.params.id });
-    if (!proposal) {
-      return res.status(404).json({ error: 'Proposal not found' });
-    }
-    res.json(proposal);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * @swagger
- * /api/proposals:
- *   post:
- *     summary: Create proposal (requires wallet signature)
- *     description: Creates a new proposal. User must provide wallet signature for authentication.
- *     tags: [Proposals]
- *     security:
- *       - WalletSignature: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             allOf:
- *               - $ref: '#/components/schemas/Proposal'
- *               - type: object
- *                 required: [address, signature, message, timestamp]
- *                 properties:
- *                   address:
- *                     type: string
- *                     description: Wallet address
- *                   signature:
- *                     type: string
- *                     description: Wallet signature
- *                   message:
- *                     type: string
- *                     description: Signed message
- *                   timestamp:
- *                     type: number
- *                     description: Message timestamp
- *     responses:
- *       201:
- *         description: Proposal created successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Proposal'
- *       400:
- *         description: Invalid proposal data
- *       401:
- *         description: Invalid wallet signature
- *       500:
- *         description: Server error
- */
-router.post('/', verifyWalletSignature, validateProposal, async (req, res) => {
-  try {
-    const io = req.app.get('io');
-
-    // Do not fabricate start/end times here. Only honor explicit values if provided.
-    const proposalData = {
-      ...req.body,
-      creator: req.userAddress,
-    };
-
-    if (req.body.startTime != null && req.body.endTime != null) {
-      proposalData.startTime = req.body.startTime;
-      proposalData.endTime = req.body.endTime;
-      // Compute duration if not included
-      if (proposalData.duration == null) {
-        proposalData.duration = Number(req.body.endTime) - Number(req.body.startTime);
-      }
-    }
-
-    const proposal = new Proposal(proposalData);
-    await proposal.save();
-
-    const approveOrderBook = new OrderBook({ proposalId: proposal.id, side: 'approve', bids: [], asks: [] });
-    const rejectOrderBook = new OrderBook({ proposalId: proposal.id, side: 'reject', bids: [], asks: [] });
-    await Promise.all([approveOrderBook.save(), rejectOrderBook.save()]);
-
-    if (io) {
-      io.emit('new-proposal', { proposal, timestamp: new Date().toISOString() });
-    }
-
-    res.status(201).json(proposal);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-/**
- * @swagger
- * /api/proposals/{id}:
- *   put:
- *     summary: Update proposal (requires wallet signature, creator only)
- *     description: Updates a proposal. Only the proposal creator can update it.
- *     tags: [Proposals]
- *     security:
- *       - WalletSignature: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Proposal ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             allOf:
- *               - $ref: '#/components/schemas/Proposal'
- *               - type: object
- *                 required: [address, signature, message, timestamp]
- *                 properties:
- *                   address:
- *                     type: string
- *                   signature:
- *                     type: string
- *                   message:
- *                     type: string
- *                   timestamp:
- *                     type: number
- *     responses:
- *       200:
- *         description: Proposal updated successfully
- *       401:
- *         description: Invalid wallet signature
- *       403:
- *         description: Only proposal creator can update
- *       404:
- *         description: Proposal not found
- */
-router.put('/:id', verifyWalletSignature, async (req, res) => {
-  try {
-    const io = req.app.get('io');
-    
-    // First check if proposal exists and user is the creator
-    const existingProposal = await Proposal.findOne({ id: req.params.id });
-    if (!existingProposal) {
-      return res.status(404).json({ error: 'Proposal not found' });
-    }
-    
-    if (existingProposal.creator.toLowerCase() !== req.userAddress) {
-      return res.status(403).json({ error: 'Only proposal creator can update this proposal' });
-    }
-    
-    const proposal = await Proposal.findOneAndUpdate(
-      { id: req.params.id },
-      req.body,
-      { new: true }
-    );
-
-    // Notify clients about proposal update
-    if (io) {
-      notifyProposalUpdate(io, proposal);
-    }
-
-    res.json(proposal);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-router.get('/:id/stats', async (req, res) => {
-  try {
-    const proposal = await Proposal.findOne({ id: req.params.id });
-    if (!proposal) {
-      return res.status(404).json({ error: 'Proposal not found' });
-    }
-
-    const orderBooks = await OrderBook.find({ proposalId: req.params.id });
-    const approveBook = orderBooks.find(ob => ob.side === 'approve');
-    const rejectBook = orderBooks.find(ob => ob.side === 'reject');
-
-    const approveTotalBids = approveBook ? approveBook.bids.reduce((total, bid) => total + BigInt(bid.amount), BigInt(0)) : BigInt(0);
-    const approveTotalAsks = approveBook ? approveBook.asks.reduce((total, ask) => total + BigInt(ask.amount), BigInt(0)) : BigInt(0);
-    const rejectTotalBids = rejectBook ? rejectBook.bids.reduce((total, bid) => total + BigInt(bid.amount), BigInt(0)) : BigInt(0);
-    const rejectTotalAsks = rejectBook ? rejectBook.asks.reduce((total, ask) => total + BigInt(ask.amount), BigInt(0)) : BigInt(0);
-
-    const approveVolume24h = await get24hVolume(req.params.id, 'approve');
-    const rejectVolume24h = await get24hVolume(req.params.id, 'reject');
-
-    const approvePriceChange24h = await get24hPriceChange(req.params.id, 'approve');
-    const rejectPriceChange24h = await get24hPriceChange(req.params.id, 'reject');
-
-    const approveLastPrice = await getLastTradePrice(req.params.id, 'approve');
-    const rejectLastPrice = await getLastTradePrice(req.params.id, 'reject');
-
-    // Derive a safe end timestamp for activity/time remaining
-    const yesEnd = Number(proposal?.auctions?.yes?.endTime || 0);
-    const noEnd = Number(proposal?.auctions?.no?.endTime || 0);
-    const derivedEndTs = proposal.endTime != null ? Number(proposal.endTime) : Math.max(yesEnd, noEnd, 0);
-    const endMs = Number.isFinite(derivedEndTs) ? derivedEndTs * 1000 : 0;
-    const nowMs = Date.now();
-
-    res.json({
-      proposal,
-      statistics: {
-        approve: {
-          lastPrice: approveLastPrice || '0',
-          volume24h: approveVolume24h || '0',
-          priceChange24h: approvePriceChange24h || '0',
-          totalBids: approveTotalBids.toString(),
-          totalAsks: approveTotalAsks.toString(),
-          spread: approveBook ? calculateSpread(approveBook.bids, approveBook.asks) : '0'
-        },
-        reject: {
-          lastPrice: rejectLastPrice || '0',
-          volume24h: rejectVolume24h || '0',
-          priceChange24h: rejectPriceChange24h || '0',
-          totalBids: rejectTotalBids.toString(),
-          totalAsks: rejectTotalAsks.toString(),
-          spread: rejectBook ? calculateSpread(rejectBook.bids, rejectBook.asks) : '0'
-        },
-        totalVolume24h: (BigInt(approveVolume24h || '0') + BigInt(rejectVolume24h || '0')).toString(),
-        isActive: Boolean(proposal.isActive) && nowMs < endMs,
-        timeRemaining: Math.max(0, endMs - nowMs)
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// NOTE: static routes must be registered before '/:id' or Express would match
+// them as an id (e.g. GET /with-market-data would 404).
 
 router.get('/with-market-data', async (req, res) => {
   try {
@@ -406,9 +155,271 @@ router.get('/states/counts', async (_req, res) => {
   }
 });
 
-// Helper functions (if not already imported)
+/**
+ * @swagger
+ * /api/proposals/{id}:
+ *   get:
+ *     summary: Get proposal by ID
+ *     tags: [Proposals]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Proposal ID
+ *     responses:
+ *       200:
+ *         description: Proposal details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Proposal'
+ *       404:
+ *         description: Proposal not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/:id', async (req, res) => {
+  try {
+    const proposal = await Proposal.findOne({ id: req.params.id });
+    if (!proposal) {
+      return res.status(404).json({ error: 'Proposal not found' });
+    }
+    res.json(proposal);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/proposals:
+ *   post:
+ *     summary: Create proposal (requires wallet signature)
+ *     description: Creates a new proposal. User must provide wallet signature for authentication.
+ *     tags: [Proposals]
+ *     security:
+ *       - WalletSignature: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/Proposal'
+ *               - type: object
+ *                 required: [address, signature, message, timestamp]
+ *                 properties:
+ *                   address:
+ *                     type: string
+ *                     description: Wallet address
+ *                   signature:
+ *                     type: string
+ *                     description: Wallet signature
+ *                   message:
+ *                     type: string
+ *                     description: Signed message
+ *                   timestamp:
+ *                     type: number
+ *                     description: Message timestamp
+ *     responses:
+ *       201:
+ *         description: Proposal created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Proposal'
+ *       400:
+ *         description: Invalid proposal data
+ *       401:
+ *         description: Invalid wallet signature
+ *       500:
+ *         description: Server error
+ */
+router.post('/', verifyWalletSignature, validateProposal, async (req, res) => {
+  try {
+    const io = req.app.get('io');
+
+    // Do not fabricate start/end times here. Only honor explicit values if provided.
+    const proposalData = {
+      ...req.body,
+      creator: req.userAddress,
+    };
+
+    // Model field is subjectToken; accept legacy collateralToken alias
+    if (proposalData.subjectToken == null && proposalData.collateralToken != null) {
+      proposalData.subjectToken = proposalData.collateralToken;
+    }
+    delete proposalData.collateralToken;
+
+    if (req.body.startTime != null && req.body.endTime != null) {
+      proposalData.startTime = req.body.startTime;
+      proposalData.endTime = req.body.endTime;
+      // Compute duration if not included
+      if (proposalData.duration == null) {
+        proposalData.duration = Number(req.body.endTime) - Number(req.body.startTime);
+      }
+    }
+
+    const proposal = new Proposal(proposalData);
+    await proposal.save();
+
+    const approveOrderBook = new OrderBook({ proposalId: proposal.id, side: 'approve', bids: [], asks: [] });
+    const rejectOrderBook = new OrderBook({ proposalId: proposal.id, side: 'reject', bids: [], asks: [] });
+    await Promise.all([approveOrderBook.save(), rejectOrderBook.save()]);
+
+    if (io) {
+      io.emit('new-proposal', { proposal, timestamp: new Date().toISOString() });
+    }
+
+    res.status(201).json(proposal);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/proposals/{id}:
+ *   put:
+ *     summary: Update proposal (requires wallet signature, creator only)
+ *     description: Updates a proposal. Only the proposal creator can update it.
+ *     tags: [Proposals]
+ *     security:
+ *       - WalletSignature: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Proposal ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/Proposal'
+ *               - type: object
+ *                 required: [address, signature, message, timestamp]
+ *                 properties:
+ *                   address:
+ *                     type: string
+ *                   signature:
+ *                     type: string
+ *                   message:
+ *                     type: string
+ *                   timestamp:
+ *                     type: number
+ *     responses:
+ *       200:
+ *         description: Proposal updated successfully
+ *       401:
+ *         description: Invalid wallet signature
+ *       403:
+ *         description: Only proposal creator can update
+ *       404:
+ *         description: Proposal not found
+ */
+router.put('/:id', verifyWalletSignature, async (req, res) => {
+  try {
+    const io = req.app.get('io');
+    
+    // First check if proposal exists and user is the creator
+    const existingProposal = await Proposal.findOne({ id: req.params.id });
+    if (!existingProposal) {
+      return res.status(404).json({ error: 'Proposal not found' });
+    }
+
+    // Synced proposals have no creator; fall back to on-chain admin
+    const owner = existingProposal.creator || existingProposal.admin;
+    if (!owner || owner.toLowerCase() !== req.userAddress) {
+      return res.status(403).json({ error: 'Only proposal creator can update this proposal' });
+    }
+
+    const proposal = await Proposal.findOneAndUpdate(
+      { id: req.params.id },
+      req.body,
+      { new: true }
+    );
+
+    // Notify clients about proposal update
+    if (io) {
+      notifyProposalUpdate(io, proposal);
+    }
+
+    res.json(proposal);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/:id/stats', async (req, res) => {
+  try {
+    const proposal = await Proposal.findOne({ id: req.params.id });
+    if (!proposal) {
+      return res.status(404).json({ error: 'Proposal not found' });
+    }
+
+    const orderBooks = await OrderBook.find({ proposalId: req.params.id });
+    const approveBook = orderBooks.find(ob => ob.side === 'approve');
+    const rejectBook = orderBooks.find(ob => ob.side === 'reject');
+
+    const approveTotalBids = approveBook ? approveBook.bids.reduce((total, bid) => total + BigInt(bid.amount), BigInt(0)) : BigInt(0);
+    const approveTotalAsks = approveBook ? approveBook.asks.reduce((total, ask) => total + BigInt(ask.amount), BigInt(0)) : BigInt(0);
+    const rejectTotalBids = rejectBook ? rejectBook.bids.reduce((total, bid) => total + BigInt(bid.amount), BigInt(0)) : BigInt(0);
+    const rejectTotalAsks = rejectBook ? rejectBook.asks.reduce((total, ask) => total + BigInt(ask.amount), BigInt(0)) : BigInt(0);
+
+    const approveVolume24h = await get24hVolume(req.params.id, 'approve');
+    const rejectVolume24h = await get24hVolume(req.params.id, 'reject');
+
+    const approvePriceChange24h = await get24hPriceChange(req.params.id, 'approve');
+    const rejectPriceChange24h = await get24hPriceChange(req.params.id, 'reject');
+
+    const approveLastPrice = await getLastTradePrice(req.params.id, 'approve');
+    const rejectLastPrice = await getLastTradePrice(req.params.id, 'reject');
+
+    // Derive a safe end timestamp for activity/time remaining
+    const yesEnd = Number(proposal?.auctions?.yes?.endTime || 0);
+    const noEnd = Number(proposal?.auctions?.no?.endTime || 0);
+    const derivedEndTs = proposal.endTime != null ? Number(proposal.endTime) : Math.max(yesEnd, noEnd, 0);
+    const endMs = Number.isFinite(derivedEndTs) ? derivedEndTs * 1000 : 0;
+    const nowMs = Date.now();
+
+    res.json({
+      proposal,
+      statistics: {
+        approve: {
+          lastPrice: approveLastPrice || '0',
+          volume24h: approveVolume24h || '0',
+          priceChange24h: approvePriceChange24h || '0',
+          totalBids: approveTotalBids.toString(),
+          totalAsks: approveTotalAsks.toString(),
+          spread: approveBook ? calculateSpread(approveBook.bids, approveBook.asks) : '0'
+        },
+        reject: {
+          lastPrice: rejectLastPrice || '0',
+          volume24h: rejectVolume24h || '0',
+          priceChange24h: rejectPriceChange24h || '0',
+          totalBids: rejectTotalBids.toString(),
+          totalAsks: rejectTotalAsks.toString(),
+          spread: rejectBook ? calculateSpread(rejectBook.bids, rejectBook.asks) : '0'
+        },
+        totalVolume24h: (BigInt(approveVolume24h || '0') + BigInt(rejectVolume24h || '0')).toString(),
+        isActive: Boolean(proposal.isActive) && nowMs < endMs,
+        timeRemaining: Math.max(0, endMs - nowMs)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper functions
 async function getLastTradePrice(proposalId, side) {
-  const Order = require('../models/Order');
   const lastOrder = await Order.findOne({
     proposalId,
     side,
@@ -420,9 +431,8 @@ async function getLastTradePrice(proposalId, side) {
 }
 
 async function get24hVolume(proposalId, side) {
-  const Order = require('../models/Order');
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  
+
   const orders = await Order.find({
     proposalId,
     side,
@@ -439,9 +449,8 @@ async function get24hVolume(proposalId, side) {
 }
 
 async function get24hPriceChange(proposalId, side) {
-  const Order = require('../models/Order');
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  
+
   const oldestOrder = await Order.findOne({
     proposalId,
     side,
@@ -529,11 +538,13 @@ router.delete('/:id', verifyWalletSignature, async (req, res) => {
     if (!existingProposal) {
       return res.status(404).json({ error: 'Proposal not found' });
     }
-    
-    if (existingProposal.creator.toLowerCase() !== req.userAddress) {
+
+    // Synced proposals have no creator; fall back to on-chain admin
+    const owner = existingProposal.creator || existingProposal.admin;
+    if (!owner || owner.toLowerCase() !== req.userAddress) {
       return res.status(403).json({ error: 'Only proposal creator can delete this proposal' });
     }
-    
+
     await Proposal.findOneAndDelete({ id: req.params.id });
     
     // Notify clients

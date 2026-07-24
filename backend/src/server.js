@@ -13,11 +13,11 @@ const proposalsRouter = require('./routes/proposals');
 const orderbooksRouter = require('./routes/orderbooks');
 const authRouter = require('./routes/auth');
 const realtimeRouter = require('./routes/realtime');
-const rateLimit = require('./middleware/rateLimit');
-const { ethers } = require('ethers');
-
-// New: chain routes
+const auctionsRouter = require('./routes/auctions');
 const chainRouter = require('./routes/chain');
+const rateLimit = require('./middleware/rateLimit');
+const { verifySignedMessage } = require('./middleware/walletAuth');
+const { notifyProposalUpdate, notifyAuctionUpdate } = require('./middleware/websocket');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,10 +36,7 @@ const PORT = process.env.PORT || 3001;
 // Connect to database
 connectDB();
 
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
+const SOCKET_AUTH_TTL_MS = 5 * 60 * 1000;
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
@@ -47,23 +44,12 @@ io.on('connection', (socket) => {
   // Client must authenticate once per connection with signed message
   socket.on('auth-wallet', ({ address, signature, message, timestamp }) => {
     try {
-      if (!address || !signature || !message || !timestamp) {
-        socket.emit('auth-error', { error: 'Missing auth fields' });
+      const result = verifySignedMessage({ address, signature, message, timestamp, ttlMs: SOCKET_AUTH_TTL_MS });
+      if (!result.ok) {
+        socket.emit('auth-error', { error: result.error });
         return;
       }
-      const expectedMessage = `FutarFi Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
-      const now = Date.now();
-      const fiveMinutes = 5 * 60 * 1000;
-      if (message !== expectedMessage || now - parseInt(timestamp) > fiveMinutes) {
-        socket.emit('auth-error', { error: 'Invalid message or expired timestamp' });
-        return;
-      }
-      const recovered = ethers.verifyMessage(message, signature);
-      if (recovered.toLowerCase() !== address.toLowerCase()) {
-        socket.emit('auth-error', { error: 'Invalid signature' });
-        return;
-      }
-      socket.data.address = address.toLowerCase();
+      socket.data.address = result.address;
       socket.join(`user-${socket.data.address}`);
       socket.emit('auth-success', { address: socket.data.address });
       console.log(`Socket ${socket.id} authenticated as ${socket.data.address}`);
@@ -123,7 +109,7 @@ app.use('/api/proposals', proposalsRouter);
 app.use('/api/orderbooks', orderbooksRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/realtime', realtimeRouter);
-app.use('/api/auctions', require('./routes/auctions'));
+app.use('/api/auctions', auctionsRouter);
 app.use('/api/chain', chainRouter); // read-only info (address, chainId)
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
@@ -172,13 +158,18 @@ server.listen(PORT, () => {
   console.log(`WebSocket server ready`);
 
   // Lightweight internal pollers
-  const { startPoll, monitorFilledOrders } = require('./services/chainService');
+  const {
+    startPoll,
+    startProposalCreatedWatcher,
+    syncProposalsFromManagerFast,
+    monitorAuctionsToFinalize,
+    monitorProposalsToResolve
+  } = require('./services/chainService');
   const Proposal = require('./models/Proposal');
-  const io = app.get('io');
+  const Auction = require('./models/Auction');
 
   // Start live ProposalCreated watcher if configured
   if (process.env.PROPOSAL_MANAGER_ADDRESS) {
-    const { startProposalCreatedWatcher } = require('./services/chainService');
     try {
       startProposalCreatedWatcher({
         manager: process.env.PROPOSAL_MANAGER_ADDRESS,
@@ -206,27 +197,30 @@ server.listen(PORT, () => {
     }]);
     if (changed?.modifiedCount > 0) {
       const updated = await Proposal.find({});
-      updated.forEach(p => {
-        const { notifyProposalUpdate } = require('./middleware/websocket');
-        notifyProposalUpdate(io, p);
-      });
+      updated.forEach(p => notifyProposalUpdate(io, p));
     }
   }, Number(process.env.PROPOSALS_POLL_MS || 15000));
 
-  // Example: internal monitor of filled orders (no HTTP POST). Provide a mapper from Order -> call
-  startPoll('filled-orders-monitor', async () => {
-    const { monitorFilledOrders } = require('./services/chainService');
-    await monitorFilledOrders((order) => {
-      // Map DB order -> contract call description
-      return null; // implement later as needed
-    });
-  }, Number(process.env.FILLED_MONITOR_MS || 20000));
-
   // Auto-sync proposals and auctions from ProposalManager if configured
   if (process.env.PROPOSAL_MANAGER_ADDRESS) {
-    const { syncProposalsFromManagerFast } = require('./services/chainService');
-    const { notifyProposalUpdate, notifyAuctionUpdate } = require('./middleware/websocket');
-    const Auction = require('./models/Auction');
+    const broadcastAuction = (auction) => {
+      if (!auction) return;
+      notifyAuctionUpdate(io, {
+        proposalId: auction.proposalId,
+        side: auction.side,
+        metrics: {
+          currentPrice: auction.currentPrice ?? auction.priceNow(),
+          tokensSold: auction.tokensSold,
+          maxTokenCap: auction.maxTokenCap ?? auction.cap,
+          minTokenCap: auction.minTokenCap ?? auction.minToOpen
+        },
+        status: {
+          finalized: auction.finalized,
+          isValid: auction.isValid,
+          isCanceled: auction.isCanceled
+        }
+      });
+    };
 
     startPoll('sync-proposals-manager', async () => {
       try {
@@ -239,48 +233,15 @@ server.listen(PORT, () => {
           if (!doc && r.id) doc = await Proposal.findOne({ id: r.id });
           if (!doc) continue;
 
-          // Proposal update
           notifyProposalUpdate(io, doc);
 
           const pid = String(doc.id);
-          // YES auction
-          const yes = await Auction.findOne({ proposalId: pid, side: 'yes' });
-          if (yes) {
-            notifyAuctionUpdate(io, {
-              proposalId: pid,
-              side: 'yes',
-              metrics: {
-                currentPrice: yes.currentPrice ?? yes.priceNow(),
-                tokensSold: yes.tokensSold,
-                maxTokenCap: yes.maxTokenCap ?? yes.cap,
-                minTokenCap: yes.minTokenCap ?? yes.minToOpen
-              },
-              status: {
-                finalized: yes.finalized,
-                isValid: yes.isValid,
-                isCanceled: yes.isCanceled
-              }
-            });
-          }
-          // NO auction
-          const no = await Auction.findOne({ proposalId: pid, side: 'no' });
-          if (no) {
-            notifyAuctionUpdate(io, {
-              proposalId: pid,
-              side: 'no',
-              metrics: {
-                currentPrice: no.currentPrice ?? no.priceNow(),
-                tokensSold: no.tokensSold,
-                maxTokenCap: no.maxTokenCap ?? no.cap,
-                minTokenCap: no.minTokenCap ?? no.minToOpen
-              },
-              status: {
-                finalized: no.finalized,
-                isValid: no.isValid,
-                isCanceled: no.isCanceled
-              }
-            });
-          }
+          const [yes, no] = await Promise.all([
+            Auction.findOne({ proposalId: pid, side: 'yes' }),
+            Auction.findOne({ proposalId: pid, side: 'no' })
+          ]);
+          broadcastAuction(yes);
+          broadcastAuction(no);
         }
       } catch (err) {
         console.error('sync-proposals-manager error:', err.message);
@@ -290,7 +251,6 @@ server.listen(PORT, () => {
 
   // Periodically try to finalize eligible Dutch auctions
   if (String(process.env.AUCTION_FINALIZE_ENABLED || 'true').toLowerCase() === 'true') {
-    const { monitorAuctionsToFinalize } = require('./services/chainService');
     startPoll('auctions-finalize', async () => {
       try {
         const res = await monitorAuctionsToFinalize();
@@ -305,7 +265,6 @@ server.listen(PORT, () => {
 
   // Periodically try to resolve proposals whose Live ended
   if (String(process.env.PROPOSAL_RESOLVE_ENABLED || 'true').toLowerCase() === 'true') {
-    const { monitorProposalsToResolve } = require('./services/chainService');
     startPoll('proposals-resolve', async () => {
       try {
         const res = await monitorProposalsToResolve();
