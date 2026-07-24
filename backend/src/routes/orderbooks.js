@@ -1411,3 +1411,5 @@ async function executeOrder(order, io) {
 }
 
 module.exports = router;
+// Expose the snapshot rebuild for services (e.g. Aqua event bridge)
+module.exports.updateOrderBook = updateOrderBook;

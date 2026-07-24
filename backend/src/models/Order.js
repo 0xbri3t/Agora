@@ -65,6 +65,11 @@ const orderSchema = new mongoose.Schema({
   txHash: {
     type: String,
     default: null
+  },
+  // Aqua/SwapVM lot quotes: keccak256(abi.encode(order)) == aqua strategyHash
+  strategyHash: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true
@@ -75,5 +80,6 @@ orderSchema.index({ userAddress: 1 });
 orderSchema.index({ status: 1 });
 orderSchema.index({ orderExecution: 1 });
 orderSchema.index({ createdAt: 1 });
+orderSchema.index({ strategyHash: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Order', orderSchema);
