@@ -164,6 +164,39 @@ FutarFi is an experimental futarchy-driven prediction market designed to enable 
 
 ---
 
+## 1inch Aqua / SwapVM Integration (ETHGlobal Lisbon 2026)
+
+FutarFi's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) <= 1 USDC` at VM execution time.
+
+### Deployed contracts (Sepolia)
+
+| Contract | Address | Notes |
+|---|---|---|
+| Aqua core (1inch, official) | [`0x499943E74FB0cE105688beeE8Ef2ABec5D936d31`](https://sepolia.etherscan.io/address/0x499943E74FB0cE105688beeE8Ef2ABec5D936d31) | Not redeployed — we ship/dock/pull/push against it |
+| LimitSwapVMRouter (our deployment) | [`0x4CF2713D08C5E439409b56efA4027F25EB0F6431`](https://sepolia.etherscan.io/address/0x4CF2713D08C5E439409b56efA4027F25EB0F6431) | Official SwapVM code; the canonical Sepolia router lacks limit opcodes |
+| FutarFiQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
+| MockUSDC (demo) | [`0x34ad23A27Ae8A562928234D4415eD7225a44bB2E`](https://sepolia.etherscan.io/address/0x34ad23A27Ae8A562928234D4415eD7225a44bB2E) | 6-decimals demo collateral |
+
+### Live demo transactions (Sepolia)
+
+1. **Ship** lot (sell 10 YES @ 0.40 USDC — maker YES balance unchanged, Aqua custody): [`0xd54a216d…`](https://sepolia.etherscan.io/tx/0xd54a216dc514ce91081c63d2c5cdc8dc06bff776c7b80c1d30140999b3953ea6)
+2. **Fill** lot exactly (taker pays 4 USDC, receives 10 YES; `Pulled`/`Pushed`/`Swapped` events): [`0x8ae074f2…`](https://sepolia.etherscan.io/tx/0x8ae074f2c3620f64bbfe8dbdbd6232079920a3c8daeb61565101b76e20850147)
+3. **Ship** second lot (5 YES @ 0.55): [`0x6e967445…`](https://sepolia.etherscan.io/tx/0x6e967445b4f49c6e9a55656470a3311c0c41f3d6dd8d98914669a6f6ef2e76bc)
+4. **Cancel** via `dock`: [`0xaf04e8cb…`](https://sepolia.etherscan.io/tx/0xaf04e8cbf15e487a528b472fff600a31a4223bb99a5c993a129f11c1b62e10ae)
+
+### Where the integration lives
+
+- `blockend/src/aqua/FutarFiQuoteBuilder.sol` — builds lot programs (`_limitSwapOnlyFull1D` + `_salt`) with 1inch's own `ProgramBuilder`; Aqua-mode orders via `MakerTraitsLib`; `buildQuote`/`buildTakerData` view encoders for the backend
+- `blockend/src/aqua/FutarFiComplement.sol` — **custom SwapVM instruction** (`IExtruction`/`IStaticExtruction`) rejecting fills when `YES + NO > 1 USDC`
+- `blockend/test/aqua/` — Foundry suites vs the real Sepolia Aqua core (fork): lot lifecycle E2E, complement guard, quote/swap consistency
+- `backend/src/services/aquaClient.js` — ship/fill/cancel from Node (all encoding via on-chain builder, no local bit-packing)
+- `backend/src/services/aquaOrderbookService.js` — indexes `Shipped`/`Swapped`/`Docked` into the existing Mongo order book
+- `backend/scripts/demo/` — the demo scripts used for the transactions above
+
+Run tests: `cd blockend && forge test --match-path "test/aqua/*"` (needs `SEPOLIA_RPC_URL`) · `cd backend && npm test`
+
+---
+
 ## Notes & Disclaimer
 
 * **Monorepo:** The project is organized as a monorepo containing frontend, backend/indexer, and smart contract packages for unified development and CI workflows.
