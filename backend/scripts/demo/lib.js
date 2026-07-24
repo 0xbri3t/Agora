@@ -7,6 +7,11 @@ const fs = require('fs');
 const path = require('path');
 const { ethers } = require('ethers');
 
+// Also load blockend/.env (single place for SEPOLIA_RPC_URL / DEPLOYER_PK / TAKER_PK)
+try {
+  require('dotenv').config({ path: path.join(__dirname, '../../../blockend/.env') });
+} catch (_) {}
+
 const STATE_FILE = path.join(__dirname, '.demo-state.json');
 
 function loadState() {
