@@ -1,5 +1,5 @@
 # Futarchy-DeFi-Protocol
-Futarchy-powered DeFi governance: PYUSD payments, Pyth pull oracles, and a TEE-secured private order book on Hedera.
+Futarchy-powered DeFi governance on Ethereum Sepolia: YES/NO markets trade as fill-or-kill lots on 1inch Aqua/SwapVM, with Pyth pull oracles and volume-weighted TWAP resolution.
 
 Currently live on!: 
 - [FutarFi landing page](https://www.futarfi.com)
@@ -15,7 +15,7 @@ Mentor: [Alex Arteaga](@alex-alra-arteaga)
 
 ## Introduction
 
-FutarFi is a futarchy-driven prediction market on the Hedera EVM, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs on an order book inside a Trusted Execution Environment (TEE), with matching isolated from MEV and anchored on-chain. Resolution uses TWAP with Pyth as the price oracle: the winning side captures value via option-style payouts, while the losing side can claim back by redeeming their MarketTokens for underlying collateral (PYUSD) at the closing (TWAP) price, ensuring a deterministic, pro-rata unwind.
+FutarFi is a futarchy-driven prediction market on Ethereum Sepolia, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs fully on-chain on **1inch Aqua**: makers ship fill-or-kill lot quotes (funds stay in their wallets), takers fill them through the SwapVM router at exact prices, and cancels are a `dock`. A custom SwapVM instruction enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) ≤ 1`. Resolution uses volume-weighted TWAPs computed from the on-chain fills and pushed by an attestor: the winning side captures value, while the losing side redeems its MarketTokens for underlying collateral (USDC) pro-rata, ensuring a deterministic unwind.
 
 ---
 
@@ -60,7 +60,7 @@ FutarFi addresses this with pre-market dual Dutch auctions (YES/NO). The auction
 - **Two-sided depth:** a per-side `minSupplySold` gate ensures both YES and NO enter the open with sufficient liquidity; otherwise, funds are refunded.
 - **Anchoring the open:** the aggregate auction outcome provides an indicative initial price that anchors quotes at the start of the session, tightening spreads and improving subsequent price discovery.
   
-Once live, the market transitions to continuous trading on a TEE-executed order book, leveraging the auction’s depth and reference price to deliver tighter spreads, better fills, and a cleaner signal for TWAP-based settlement later on.
+Once live, the market transitions to continuous on-chain trading on 1inch Aqua, leveraging the auction’s depth and reference price to deliver tighter spreads, better fills, and a cleaner signal for TWAP-based settlement later on.
 
 ---
 
@@ -71,12 +71,12 @@ Once live, the market transitions to continuous trading on a TEE-executed order 
 
 ## Design Decisions
 
-- **Hedera EVM:** Selected for low latency, predictable gas fees, and full Ethereum tooling compatibility (Foundry, Viem, Wagmi).
+- **Ethereum Sepolia:** Home of the live 1inch Aqua deployment; full Foundry/Viem/Wagmi tooling.
 - **Pyth:** Used exclusively to fetch the **initial price** of the subject token at market creation. Continuous update models are not implemented.
 - **Dutch Auction for Liquidity:** Ensures fair and balanced initial market capitalization.
-- **Order Book Trading:** Allows ongoing market-driven price discovery post-auction.
+- **Aqua Lot Trading:** Post-auction price discovery runs on 1inch Aqua/SwapVM — self-custodial fill-or-kill lots, exact prices, on-chain settlement.
 - **Market Tokens as Rewards:** Winners receive OPTIONS tokens bought with the treasury; losers can claim proportional treasury.
-- **TEE Integration:** The final resolution endpoint executes within a **Trusted Execution Environment (TEE)** to guarantee tamper-proof validation and privacy-preserving computation.
+- **TWAP Resolution:** An attestor pushes volume-weighted TWAPs computed from the on-chain Aqua fills; `Proposal.resolve()` settles from those values.
 
 ---
 
@@ -96,10 +96,9 @@ Once live, the market transitions to continuous trading on a TEE-executed order 
    - Participants purchase **YES** or **NO** positions at a price that decreases linearly over time.
    - This ensures balanced liquidity distribution before transitioning into open trading.
 
-3. **Order Book Trading Phase**
-   - After the liquidity phase, the market switches to an **order book** model.
-   - Traders can place limit or market orders for **YES/NO tokens**.
-   - This mechanism allows continuous and transparent price discovery.
+3. **Aqua Trading Phase**
+   - After the liquidity phase, trading moves to **1inch Aqua**: makers ship fill-or-kill lot quotes for **YES/NO tokens**, takers fill them through the SwapVM router.
+   - Funds stay in maker wallets until fill time; every trade settles on-chain at an exact price.
 
 4. **Resolution Phase**
    - Upon reaching the resolution date or condition, the **subject token’s** price is compared against its initial reference value.
@@ -130,8 +129,8 @@ Once live, the market transitions to continuous trading on a TEE-executed order 
 ### Frontend/Backend Interaction
 
 * The **frontend** uses **Viem** for contract interaction, managing auctions, orders, and claims.
-* The **backend** indexes market state, aggregates data, and relays verified results from the TEE resolution endpoint.
-* The **TEE** ensures off-chain comparison logic runs securely before triggering on-chain settlements.
+* The **backend** indexes Aqua events (`Shipped`/`Swapped`/`Docked`) into the order book and pushes volume-weighted TWAPs on-chain as attestor.
+
 
 ---
 
@@ -139,24 +138,23 @@ Once live, the market transitions to continuous trading on a TEE-executed order 
 
 * **Proposal Parameters:** Each market defines min supply, cap, and optional executable logic.
 * **Market-Specific Tokens:** Each market mints unique YES/NO tokens tied to that instance.
-* **TEE Settlement:** The final resolution logic executes in a verifiable, confidential environment.
+* **On-chain Settlement:** Every trade is an on-chain Aqua fill; resolution reads TWAPs computed from those fills.
 * **Economic Security:** The system isolates risks and rewards per market, maintaining predictability.
-* **EVM Compatibility:** Deployable on Hedera RPC endpoints with standard Ethereum tooling.
+* **EVM Compatibility:** Standard Ethereum tooling (Foundry, wagmi/viem, ethers).
 
 ---
 
 ## Local Setup
 
 ```bash
-# Install dependencies
-npm install
+# One command: MongoDB + anvil (Sepolia fork with live Aqua) + contracts + backend + frontend
+./dev.sh
 
-# Run frontend
-npm run dev
-
-# Deploy contracts with Foundry
-forge script scripts/Deploy.s.sol --rpc-url $HEDERA_RPC --broadcast
+# Stop / status / logs / fresh DB
+./dev.sh stop | status | logs [svc] | reset
 ```
+
+Requirements: Docker, Foundry, Node, pnpm. Set `SEPOLIA_RPC_URL` in `blockend/.env`.
 
 ---
 
