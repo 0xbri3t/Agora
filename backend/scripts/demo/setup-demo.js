@@ -19,6 +19,13 @@ async function main() {
   console.log(`maker: ${makerAddr}`);
   console.log(`taker: ${takerAddr}`);
 
+  // Auto-fund the taker with gas from the deployer if it's empty
+  const takerBal = await provider.getBalance(takerAddr);
+  if (takerBal < ethers.parseEther('0.002')) {
+    console.log('funding taker with 0.005 ETH from deployer...');
+    await (await maker.sendTransaction({ to: takerAddr, value: ethers.parseEther('0.005') })).wait();
+  }
+
   let cfg = getCfg();
 
   // Deploy core stack if missing (fork demo / first live run without Task-5 broadcast)
