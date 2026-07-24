@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {ISwapVM} from "@1inch-swap-vm/src/interfaces/ISwapVM.sol";
 import {MakerTraitsLib} from "@1inch-swap-vm/src/libs/MakerTraits.sol";
+import {TakerTraitsLib} from "@1inch-swap-vm/src/libs/TakerTraits.sol";
 import {LimitOpcodes} from "@1inch-swap-vm/src/opcodes/LimitOpcodes.sol";
 import {LimitSwap, LimitSwapArgsBuilder} from "@1inch-swap-vm/src/instructions/LimitSwap.sol";
 import {Controls} from "@1inch-swap-vm/src/instructions/Controls.sol";
@@ -63,6 +64,47 @@ contract FutarFiQuoteBuilder is LimitOpcodes {
             postTransferOutTarget: address(0),
             postTransferOutData: "",
             program: program
+        }));
+    }
+
+    /// @notice One-call convenience for the backend (eth_call): program + order + ship payload + hash.
+    /// @return order The Aqua-mode order struct (pass to router.swap)
+    /// @return shipStrategy abi.encode(order) — the `strategy` param for aqua.ship()
+    /// @return strategyHash keccak256(abi.encode(order)) — Aqua-mode order hash (== aqua strategyHash)
+    function buildQuote(
+        address maker,
+        address usdc,
+        address outcomeToken,
+        bytes32 salt
+    ) external view returns (ISwapVM.Order memory order, bytes memory shipStrategy, bytes32 strategyHash) {
+        order = buildOrder(maker, buildProgram(usdc, outcomeToken, salt));
+        shipStrategy = abi.encode(order);
+        strategyHash = keccak256(shipStrategy);
+    }
+
+    /// @notice Taker-side data for router.swap(): EOA path, router pulls tokenIn via
+    ///         transferFrom + Aqua push. Taker must approve tokenIn to the router.
+    function buildTakerData(address taker, bool isExactIn) external pure returns (bytes memory) {
+        return TakerTraitsLib.build(TakerTraitsLib.Args({
+            taker: taker,
+            isExactIn: isExactIn,
+            shouldUnwrapWeth: false,
+            isStrictThresholdAmount: false,
+            isFirstTransferFromTaker: true,
+            useTransferFromAndAquaPush: true,
+            threshold: "",
+            to: address(0),
+            deadline: 0,
+            hasPreTransferInCallback: false,
+            hasPreTransferOutCallback: false,
+            preTransferInHookData: "",
+            postTransferInHookData: "",
+            preTransferOutHookData: "",
+            postTransferOutHookData: "",
+            preTransferInCallbackData: "",
+            preTransferOutCallbackData: "",
+            instructionsArgs: "",
+            signature: ""
         }));
     }
 }

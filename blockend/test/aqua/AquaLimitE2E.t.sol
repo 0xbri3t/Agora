@@ -145,6 +145,30 @@ contract AquaLimitE2E is Test {
         assertEq(out1 + out2, 2 * LOT_YES, "both ladder lots filled at exact price");
     }
 
+    /// Backend path: everything (order, ship payload, takerData) from builder view calls only.
+    function test_convenienceBuildQuoteAndTakerData_endToEnd() public {
+        (ISwapVM.Order memory order, bytes memory shipStrategy, bytes32 strategyHash) =
+            builder.buildQuote(maker, address(usdc), address(yes), bytes32(uint256(42)));
+        assertEq(strategyHash, router.hash(order), "buildQuote hash must match router.hash");
+
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(yes); tokens[1] = address(usdc);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = LOT_YES; amounts[1] = LOT_USDC;
+
+        vm.prank(maker);
+        bytes32 shipped = aqua.ship(address(router), shipStrategy, tokens, amounts);
+        assertEq(shipped, strategyHash, "aqua.ship hash must match buildQuote hash");
+
+        bytes memory takerData = builder.buildTakerData(taker, true);
+        vm.prank(taker);
+        (uint256 amountIn, uint256 amountOut,) = router.swap(
+            order, address(usdc), address(yes), LOT_USDC, takerData
+        );
+        assertEq(amountIn, LOT_USDC);
+        assertEq(amountOut, LOT_YES);
+    }
+
     function test_dockCancelsLot() public {
         (ISwapVM.Order memory order, bytes32 strategyHash) = _shipLot(LOT_USDC, LOT_YES, 1);
 
