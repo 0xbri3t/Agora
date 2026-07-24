@@ -9,15 +9,6 @@ import {Treasury} from "../core/Treasury.sol";
 interface IProposal {
     enum State { Auction, Live, Resolved, Cancelled }
 
-    struct Trade {
-        address seller;
-        address buyer;
-        address outcomeToken;    // address of outcome token being traded (tYes or tNo)
-        uint256 tokenAmount;     // amount of outcome tokens to be traded
-        uint256 collateralAmount;     // total cost in Collateral for the amount of outcome tokens 
-        uint256 twapPrice;       // time-weighted average price of the outcome token
-    }
-
     function initialize(
         uint256 _id,
         address _admin,
@@ -37,7 +28,7 @@ interface IProposal {
     ) external;
 
     function settleAuctions() external;
-    function applyBatch(Trade[] calldata) external;
+    function updateTwap(uint256 _twapYes, uint256 _twapNo) external;
 
     // -------- Views --------
     function state() external view returns (State);

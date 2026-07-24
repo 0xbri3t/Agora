@@ -21,7 +21,6 @@ contract Proposal is Ownable, IProposal {
 
     State public state;
 
-    Trade public trade;
 
     // core identifiers / metadata
     uint256 public id;
@@ -86,7 +85,7 @@ contract Proposal is Ownable, IProposal {
     event ProposalResolved(uint256 indexed id, uint256 when);
     event ProposalCancelled(uint256 when);
     event ProposalLive(uint256 liveEnd);
-    event BatchApplied(uint256 ops);
+    event TwapUpdated(uint256 twapYes, uint256 twapNo, uint256 at);
     event TokenClaimed(uint256 amout, address token);
 
     modifier onlyAttestor() {
@@ -261,35 +260,14 @@ contract Proposal is Ownable, IProposal {
     }
 
 
-    /// @notice Apply a batch of trades. Requires allowances set by both sides.
-    function applyBatch(Trade[] calldata ops) external onlyAttestor {
+    /// @notice Attestor pushes volume-weighted TWAP computed from on-chain Aqua fills.
+    /// @dev Trading itself settles through 1inch Aqua/SwapVM (ship/swap/dock); this
+    ///      contract only needs the resulting TWAPs to resolve the market.
+    function updateTwap(uint256 _twapYes, uint256 _twapNo) external onlyAttestor {
         if (state != State.Live) revert BadState(State.Live, state);
-        for (uint256 i = 0; i < ops.length; ++i) {
-            Trade calldata t = ops[i];
-            if (t.seller == address(0) || t.buyer == address(0)) revert ZeroAddress();
-            if (t.outcomeToken != address(yesToken) && t.outcomeToken != address(noToken)) revert InvalidOutcomeToken(t.outcomeToken);
-            if (t.tokenAmount == 0) revert InvalidAmounts();
-
-
-            // Transfer Collateral from buyer to seller
-            IERC20(collateral).safeTransferFrom(t.buyer, t.seller, t.collateralAmount);
-
-            // Transfer outcome token from seller to buyer (must have allowance on outcome token)
-            IERC20(t.outcomeToken).safeTransferFrom(t.seller, t.buyer, t.tokenAmount);
-
-            Treasury(treasury).transferBalance(t.seller, t.buyer, t.collateralAmount);
-
-            // update TWAP prices
-            if (t.outcomeToken == address(yesToken)) {
-                // Update TWAP price for YES token if its different
-                twapPriceTokenYes = twapPriceTokenYes == t.twapPrice ? twapPriceTokenYes : t.twapPrice;
-            } else {
-                // Update TWAP price for NO token if its different
-                twapPriceTokenNo = twapPriceTokenNo == t.twapPrice ? twapPriceTokenNo : t.twapPrice;
-            }
-
-            emit BatchApplied(ops.length);
-        }
+        twapPriceTokenYes = _twapYes;
+        twapPriceTokenNo = _twapNo;
+        emit TwapUpdated(_twapYes, _twapNo, block.timestamp);
     }
 
 

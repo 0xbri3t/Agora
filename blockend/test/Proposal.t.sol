@@ -186,52 +186,10 @@ contract ProposalBasicTest is Test {
         assertGt(proposal.liveEnd(), 0, "liveEnd not set");
 
 
-        // Prepare secondary market batch to set TWAPs and trigger resolve
-        address takerYes = makeAddr("takerYes");
-        address takerNo = makeAddr("takerNo");
-        collateral.transfer(takerYes, 10_000);
-        collateral.transfer(takerNo, 10_000);
-
-        // Approvals for Proposal to move funds in applyBatch
-        vm.prank(buyerYes);
-        yesToken.approve(address(proposal), type(uint256).max); // sell 0.2 YES
-        vm.prank(takerYes);
-        collateral.approve(address(proposal), 10_000);
-        vm.prank(buyerNo);
-        noToken.approve(address(proposal), type(uint256).max);  // sell 0.2 NO
-        vm.prank(takerNo);
-        collateral.approve(address(proposal), 10_000);
-
-        // Force Proposal owner to be attestor so _executeTargetCalldata (onlyOwner) passes
-        // vm.store(address(proposal), bytes32(uint256(0)), bytes32(uint256(uint160(attestor))));
-
-        // Move to after live end and set state to Live (enum: 0=Auction,1=Live,2=Resolved,3=Cancelled)
-        uint256 le = proposal.liveEnd();
-        vm.warp(le + 1);
-
-        // Build trades with higher TWAP for YES so YES wins
-        IProposal.Trade[] memory ops = new IProposal.Trade[](2);
-        ops[0] = IProposal.Trade({
-            seller: buyerYes,
-            buyer: takerYes,
-            outcomeToken: address(yesToken),
-            tokenAmount: yesToken.balanceOf(buyerYes),
-            collateralAmount: 5_000,
-            twapPrice: 200
-        });
-        ops[1] = IProposal.Trade({
-            seller: buyerNo,
-            buyer: takerNo,
-            outcomeToken: address(noToken),
-            tokenAmount: noToken.balanceOf(buyerNo),
-            collateralAmount: 4_000,
-            twapPrice: 100
-        });
-
-        // Apply the batch as attestor; should resolve and execute target calldata
+        // Aqua era: trading settles on 1inch Aqua/SwapVM off this contract.
+        // The attestor pushes the volume-weighted TWAPs computed from Aqua fills.
         vm.prank(attestor);
-        proposal.applyBatch(ops);
-
+        proposal.updateTwap(200, 100); // YES > NO -> YES wins
 
         vm.warp(proposal.liveEnd() + 1);
         proposal.resolve();
@@ -244,22 +202,73 @@ contract ProposalBasicTest is Test {
         assertTrue(noToken.paused(), "NO token should be paused as loser");
         assertFalse(yesToken.paused(), "YES token should not be paused as winner");
 
-        // test users with noToken can claim
-        uint256 balanceTakerNoTokenNoBefore = noToken.balanceOf(takerNo);
+        // Losing-side holder (buyerNo, funded in the auction) claims collateral back
+        uint256 balanceBuyerNoTokenBefore = noToken.balanceOf(buyerNo);
         uint256 balanceTreasuryTokenNoBefore = noToken.balanceOf(treasury);
-
-        uint256 balanceTakerNoPyUsdBefore = collateral.balanceOf(takerNo);
-        uint256 balanceTreasuryNoPyUsdBefore = collateral.balanceOf(treasury);
+        uint256 balanceBuyerNoCollateralBefore = collateral.balanceOf(buyerNo);
+        uint256 balanceTreasuryCollateralBefore = collateral.balanceOf(treasury);
         assertEq(Treasury(treasury).refundsEnabled(), true);
 
-        vm.startPrank(takerNo);
+        vm.startPrank(buyerNo);
         noToken.approve(treasury, type(uint256).max);
         proposal.claimTokens(address(noToken));
         vm.stopPrank();
 
-        assertEq(noToken.balanceOf(takerNo), 0, "after claiming, takerNo should have 0 noTokens");
-        assertGt(collateral.balanceOf(takerNo), balanceTakerNoPyUsdBefore, "after claiming, takerNo should have more collateral");
-        assertEq(noToken.balanceOf(treasury), balanceTreasuryTokenNoBefore + balanceTakerNoTokenNoBefore, "after claiming, treasury should have more noTokens");
-        assertLt(collateral.balanceOf(treasury), balanceTreasuryNoPyUsdBefore, "after claiming, treasury should have less collateral");
+        assertEq(noToken.balanceOf(buyerNo), 0, "after claiming, buyerNo should have 0 noTokens");
+        assertGt(collateral.balanceOf(buyerNo), balanceBuyerNoCollateralBefore, "after claiming, buyerNo should have more collateral");
+        assertEq(noToken.balanceOf(treasury), balanceTreasuryTokenNoBefore + balanceBuyerNoTokenBefore, "after claiming, treasury should have more noTokens");
+        assertLt(collateral.balanceOf(treasury), balanceTreasuryCollateralBefore, "after claiming, treasury should have less collateral");
+    }
+
+    function test_UpdateTwap_onlyAttestor() public {
+        _createLiveProposal();
+        vm.expectRevert();
+        proposal.updateTwap(200, 100); // caller is not attestor
+
+        vm.prank(attestor);
+        proposal.updateTwap(200, 100);
+        assertEq(proposal.twapPriceTokenYes(), 200);
+        assertEq(proposal.twapPriceTokenNo(), 100);
+    }
+
+    function test_Resolve_NoWins_fromPushedTwap() public {
+        _createLiveProposal();
+        vm.prank(attestor);
+        proposal.updateTwap(100, 300); // NO wins
+
+        vm.warp(proposal.liveEnd() + 1);
+        proposal.resolve();
+
+        assertEq(uint8(proposal.state()), uint8(IProposal.State.Resolved));
+        assertTrue(proposal.yesToken().paused(), "YES should be paused as loser");
+        assertFalse(proposal.noToken().paused(), "NO should not be paused as winner");
+    }
+
+    /// Boots a proposal through the auction into Live state (helper for TWAP tests)
+    function _createLiveProposal() internal {
+        pm.createProposal(
+            "T", "D", 10, 20, "S", 1e18, 100e18,
+            address(0), "", PYTH_CONTRACT, PYTH_ID
+        );
+        ProposalManager.ProposalInfo memory info = pm.getProposalById(1);
+        proposal = Proposal(info.proposalAddress);
+
+        address bYes = makeAddr("bYes");
+        address bNo = makeAddr("bNo");
+        collateral.transfer(bYes, 10_000_000e18);
+        collateral.transfer(bNo, 10_000_000e18);
+        address treas = address(proposal.treasury());
+        vm.prank(bYes);
+        collateral.approve(treas, type(uint256).max);
+        vm.prank(bNo);
+        collateral.approve(treas, type(uint256).max);
+        DutchAuction yesA = proposal.yesAuction();
+        DutchAuction noA = proposal.noAuction();
+        vm.prank(bYes);
+        yesA.buyLiquidity(2e18);
+        vm.prank(bNo);
+        noA.buyLiquidity(2e18);
+        vm.warp(yesA.END_TIME() + 1);
+        require(uint8(proposal.state()) == uint8(IProposal.State.Live), "not live");
     }
 }
