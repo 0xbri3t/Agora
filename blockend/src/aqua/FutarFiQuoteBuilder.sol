@@ -7,6 +7,7 @@ import {TakerTraitsLib} from "@1inch-swap-vm/src/libs/TakerTraits.sol";
 import {LimitOpcodes} from "@1inch-swap-vm/src/opcodes/LimitOpcodes.sol";
 import {LimitSwap, LimitSwapArgsBuilder} from "@1inch-swap-vm/src/instructions/LimitSwap.sol";
 import {Controls} from "@1inch-swap-vm/src/instructions/Controls.sol";
+import {Extruction} from "@1inch-swap-vm/src/instructions/Extruction.sol";
 import {Program, ProgramBuilder} from "@1inch-swap-vm/test/utils/ProgramBuilder.sol";
 
 /// @notice Builds FutarFi fill-or-kill lot quotes as Aqua-mode SwapVM orders (swap-vm v1.0.1).
@@ -65,6 +66,27 @@ contract FutarFiQuoteBuilder is LimitOpcodes {
             postTransferOutData: "",
             program: program
         }));
+    }
+
+    /// @notice Like buildProgram, but prepends the FutarFiComplement extruction:
+    ///         the VM itself rejects fills when ownPrice + pairedPrice > 1 USDC.
+    /// @param complement Deployed FutarFiComplement (immutable, stateless)
+    /// @param pairedPrice6d Price of the maker's OTHER outcome lot (USDC 6d per 1e18 token)
+    function buildProgramWithComplement(
+        address usdc,
+        address outcomeToken,
+        address complement,
+        uint256 pairedPrice6d,
+        bytes32 salt
+    ) public view returns (bytes memory) {
+        Program memory p = ProgramBuilder.init(_opcodes());
+
+        return bytes.concat(
+            // _extruction args = [target:20B][extructionArgs...] — ours: [pairedPrice:32B]
+            p.build(Extruction._extruction, abi.encodePacked(complement, pairedPrice6d)),
+            p.build(LimitSwap._limitSwapOnlyFull1D, LimitSwapArgsBuilder.build(usdc, outcomeToken)),
+            p.build(Controls._salt, abi.encodePacked(salt))
+        );
     }
 
     /// @notice One-call convenience for the backend (eth_call): program + order + ship payload + hash.
