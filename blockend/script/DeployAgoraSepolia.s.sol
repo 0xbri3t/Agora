@@ -10,6 +10,8 @@ import {Proposal} from "../src/core/Proposal.sol";
 contract DeployAgoraSepolia is Script {
     // Aqua-era collateral (already live on Sepolia, see deployments/sepolia-aqua.json)
     address constant COLLATERAL = 0x34ad23A27Ae8A562928234D4415eD7225a44bB2E;
+    // Uniswap Continuous Clearing Auction factory (canonical, same address across chains)
+    address constant CCA_FACTORY = 0x000000001F26a0044BaA66024e7b6599c61963F8;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PK");
@@ -17,7 +19,7 @@ contract DeployAgoraSepolia is Script {
 
         vm.startBroadcast(pk);
         Proposal proposalImpl = new Proposal();
-        ProposalManager pm = new ProposalManager(COLLATERAL, address(proposalImpl), attestor);
+        ProposalManager pm = new ProposalManager(COLLATERAL, address(proposalImpl), attestor, CCA_FACTORY);
         vm.stopBroadcast();
 
         console.log("proposalManager:", address(pm));

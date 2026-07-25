@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {DutchAuction} from "../core/DutchAuction.sol";
+import {ICCAuction} from "./ICCA.sol";
 import {MarketToken} from "../tokens/MarketToken.sol";
 import {Treasury} from "../core/Treasury.sol";
 
@@ -24,7 +24,8 @@ interface IProposal {
         bytes memory _data,
         address _pythContract,
         bytes32 _priceFeedId,
-        address _attestor
+        address _attestor,
+        address _ccaFactory
     ) external;
 
     function settleAuctions() external;
@@ -45,8 +46,8 @@ interface IProposal {
     function collateral() external view returns (address);
     function minToOpen() external view returns (uint256);
     function maxCap() external view returns (uint256);
-    function yesAuction() external view returns (DutchAuction);
-    function noAuction() external view returns (DutchAuction);
+    function yesAuction() external view returns (ICCAuction);
+    function noAuction() external view returns (ICCAuction);
     function yesToken() external view returns (MarketToken);
     function noToken() external view returns (MarketToken);
     function target() external view returns (address);

@@ -85,11 +85,25 @@ contract Treasury is Ownable , ITreasury {
     /// @notice Called by auctions during user refund flow (after burning user tokens).
     function refundTo(address _user, address _token , uint256 _amount) external onlyAuctionOrOwner() {
         if (!refundsEnabled) revert RefundsNotEnabled();
-        
-        IERC20(_token).safeTransferFrom(_user, address(this), _amount); 
+
+        IERC20(_token).safeTransferFrom(_user, address(this), _amount);
         IERC20(collateral).safeTransfer(_user, balances[_user]);
         emit RefundPaid(msg.sender, _user, _amount);
 
+    }
+
+    /// @notice Pro-rata redemption at resolution: pull the user's outcome tokens
+    ///         in and pay out the collateral share computed by the Proposal.
+    /// @dev The Proposal (owner) owns the pot accounting; this only moves funds.
+    function payout(address _user, address _token, uint256 _tokenAmount, uint256 _collateralAmount)
+        external
+        onlyOwner
+    {
+        if (!refundsEnabled) revert RefundsNotEnabled();
+
+        IERC20(_token).safeTransferFrom(_user, address(this), _tokenAmount);
+        IERC20(collateral).safeTransfer(_user, _collateralAmount);
+        emit RefundPaid(msg.sender, _user, _collateralAmount);
     }
 
 }

@@ -12,6 +12,8 @@
     ProposalManager public proposalManager;
     Proposal public proposal;
     address public constant ATTESTOR = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266; // hardcoded for deployment
+    // Uniswap CCA factory (Sepolia fork / Sepolia)
+    address public constant CCA_FACTORY = 0x000000001F26a0044BaA66024e7b6599c61963F8;
 
     function run() external {
         vm.startBroadcast();
@@ -23,7 +25,7 @@
 
         proposal = new Proposal();
         // Deploy ProposalManager with COLLATERAL address
-        proposalManager = new ProposalManager(address(collateral), address(proposal), ATTESTOR);
+        proposalManager = new ProposalManager(address(collateral), address(proposal), ATTESTOR, CCA_FACTORY);
 
         // Basic checks
         require(proposalManager.COLLATERAL() == address(collateral), "PM: wrong COLLATERAL");
