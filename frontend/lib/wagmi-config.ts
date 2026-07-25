@@ -16,7 +16,7 @@ const chains = [
   // sepolia,
   // hederaWithIcon as unknown as Chain,
   hederaTestnetWithIcon as unknown as Chain,
-  // anvil as unknown as Chain,
+  anvil as unknown as Chain,
 ] as [Chain, ...Chain[]]
 
 // Always show MetaMask + Rabby; allow others via injected + WalletConnect
@@ -51,7 +51,7 @@ export const config = createConfig({
     // [sepolia.id]: http(),
     // [hederaWithIcon.id]: http(),
     [hederaTestnetWithIcon.id]: http(process.env.NEXT_PUBLIC_RPC_URL),
-    // [anvil.id]: http(),
+    [anvil.id]: http(),
   },
   connectors,
   ssr: true,

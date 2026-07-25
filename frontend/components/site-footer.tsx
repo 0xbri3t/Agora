@@ -3,6 +3,15 @@
 import Link from "next/link"
 import { Github, Linkedin } from "lucide-react"
 import { site, type Author } from "@/lib/site"
+import deployedAddresses from "@/contracts/deployed-addresses.json"
+
+const HEDERA_TESTNET_CHAIN_ID = "296"
+const proposalManagerAddress =
+  (deployedAddresses as Record<string, Record<string, string>>)[HEDERA_TESTNET_CHAIN_ID]?.PROPOSAL_MANAGER
+
+function truncateAddress(address: string): string {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`
+}
 
 export function SiteFooter() {
   return (
@@ -70,8 +79,21 @@ export function SiteFooter() {
           </ul>
         </div>
       </div>
-      <div className="container mx-auto px-4 pb-8 text-xs text-muted-foreground">
-        <span>© {new Date().getFullYear()} FutarFi</span>
+      <div className="container mx-auto px-4 pb-8 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+        <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} FutarFi</span>
+        {proposalManagerAddress && (
+          <span className="font-mono text-xs text-muted-foreground">
+            Hedera Testnet ·{" "}
+            <Link
+              href={`https://hashscan.io/testnet/address/${proposalManagerAddress}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors"
+            >
+              {truncateAddress(proposalManagerAddress)}
+            </Link>
+          </span>
+        )}
       </div>
     </footer>
   )
