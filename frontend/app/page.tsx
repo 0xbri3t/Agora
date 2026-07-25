@@ -24,8 +24,17 @@ export default function HomePage() {
             </Button>
           </div>
 
-          <div className="hidden lg:block">
-            <PixelAgora className="flex h-full min-h-[520px] w-full items-center justify-center" />
+          <div className="hidden lg:flex lg:flex-col lg:items-center lg:gap-6">
+            <PixelAgora className="flex min-h-[520px] w-full items-center justify-center" />
+            <figure className="max-w-md text-center">
+              <blockquote className="text-sm leading-relaxed text-muted-foreground">
+                Civilization is built on correct capital allocation.
+                Corruption and conflicts of interest undermine it.
+              </blockquote>
+              <figcaption className="mt-2 font-mono text-xs text-muted-foreground/60">
+                — Arnau Briet
+              </figcaption>
+            </figure>
           </div>
         </div>
       </section>
