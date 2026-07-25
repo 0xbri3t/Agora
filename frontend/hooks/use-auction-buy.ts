@@ -108,8 +108,9 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     try {
       signer = await getEthersSigner(config)
     } catch (e: any) {
-      setError("Connect wallet")
-      throw new Error("no wallet")
+      const msg = e?.message?.includes('chain') ? e.message : "Connect wallet"
+      setError(msg)
+      throw new Error(msg)
     }
 
     // The auction only exists on the app's chain: a wallet signing against a

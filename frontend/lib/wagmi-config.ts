@@ -10,10 +10,13 @@ if (projectId.length !== 32) {
   console.warn('WalletConnect Project ID must be exactly 32 characters long. Please set NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID in your environment variables.')
 }
 
-// First chain is wagmi's default: on a local fork the app must start on
-// anvil or the embedded wallet connects against real Sepolia.
-const chains = (process.env.NEXT_PUBLIC_OPENFORT_LOCAL === '1'
-  ? [anvil as unknown as Chain, sepolia]
+// On a local fork, anvil is the ONLY chain: with Sepolia configured, stale
+// sessions reconnect on 11155111 and wagmi keeps polling the public Sepolia
+// RPC forever. Without it, old sessions are invalid and everything lands on
+// the fork.
+const isLocalFork = process.env.NEXT_PUBLIC_OPENFORT_LOCAL === '1'
+const chains = (isLocalFork
+  ? [anvil as unknown as Chain]
   : [sepolia, anvil as unknown as Chain]) as [Chain, ...Chain[]]
 
 // Openfort supplies the external wallet connectors (MetaMask, WalletConnect,
@@ -25,10 +28,12 @@ export const config = createConfig(
     appDescription: 'Futarchy markets decide',
     walletConnectProjectId: projectId,
     chains,
-    transports: {
-      [sepolia.id]: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'),
-      [anvil.id]: http(),
-    },
+    transports: isLocalFork
+      ? { [anvil.id]: http() }
+      : {
+          [sepolia.id]: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'),
+          [anvil.id]: http(),
+        },
     ssr: true,
   })
 )
