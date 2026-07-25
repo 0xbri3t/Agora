@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { ComposedChart, Line, Area, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine } from "recharts"
-import { MechanismInset, type RawBid } from "@/components/auction/mechanism-inset"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AuctionData, UserBalance } from "@/lib/types"
 import { formatUnits } from "viem"
@@ -360,26 +359,35 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   }, [startTime, endTime, supplyTokens])
   const releasedPct = supplyTokens > 0 ? (releasedTokens / supplyTokens) * 100 : 0
 
-  // Emission strip series: the released line up to now, and its dashed
-  // projection to the end of the auction.
-  const emissionSeries = useMemo(() => {
-    if (!startTime || !endTime || supplyTokens <= 0) return { done: [], ahead: [] }
-    const clampedNow = Math.min(Math.max(now, startTime), endTime)
-    return {
-      done: [
-        { time: startTime, released: 0 },
-        { time: clampedNow, released: releasedTokens },
-      ],
-      ahead: [
-        { time: clampedNow, released: releasedTokens },
-        { time: endTime, released: supplyTokens },
-      ],
+  // Order-book view (the Gnosis-auction classic): cumulative TOKEN demand at or
+  // above each price — each bid contributes budget/maxPrice tokens. Sorted from
+  // the highest price down, so the curve steps down-right.
+  const tokenDemand = useCallback((marks: BidMark[]): Array<{ price: number; tokens: number }> => {
+    const sorted = [...marks].filter((b) => b.price > 0).sort((a, b) => b.price - a.price)
+    const pts: Array<{ price: number; tokens: number }> = []
+    let cum = 0
+    for (const b of sorted) {
+      pts.push({ price: b.price, tokens: cum })
+      cum += b.amount / b.price
+      pts.push({ price: b.price, tokens: cum })
     }
-  }, [startTime, endTime, now, releasedTokens, supplyTokens])
-
-  // Raw active bids for the mechanism inset (side, max price, budget)
-  const yesRawBids = useMemo<RawBid[]>(() => yesBidMarks.map((b) => ({ price: b.price, amount: b.amount })), [yesBidMarks])
-  const noRawBids = useMemo<RawBid[]>(() => noBidMarks.map((b) => ({ price: b.price, amount: b.amount })), [noBidMarks])
+    if (pts.length > 0) pts.push({ price: 0, tokens: cum })
+    return pts
+  }, [])
+  const yesTokenDemand = useMemo(() => tokenDemand(yesBidMarks), [tokenDemand, yesBidMarks])
+  const noTokenDemand = useMemo(() => tokenDemand(noBidMarks), [tokenDemand, noBidMarks])
+  const demandXMax = useMemo(() => {
+    const peak = Math.max(startPrice ?? 0, yesPriceNow, noPriceNow, ...yesBidMarks.map(b => b.price), ...noBidMarks.map(b => b.price))
+    return peak > 0 ? peak * 1.2 : 1
+  }, [startPrice, yesPriceNow, noPriceNow, yesBidMarks, noBidMarks])
+  const demandYMax = useMemo(() => {
+    const peak = Math.max(
+      supplyTokens,
+      ...yesTokenDemand.map(p => p.tokens),
+      ...noTokenDemand.map(p => p.tokens),
+    )
+    return peak > 0 ? peak * 1.1 : 1
+  }, [supplyTokens, yesTokenDemand, noTokenDemand])
 
   // Manual refetch to update instantly after tx and every 10s
   const refetchNow = useCallback(async () => {
@@ -626,8 +634,6 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     )
   }
 
-  const cnDemandGrid = "grid grid-cols-1 md:grid-cols-[1fr_320px] gap-4 items-start"
-
   const ChartCard = (
     <Card className={fullHeight ? "h-full flex flex-col" : undefined}>
       <CardHeader>
@@ -651,14 +657,17 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
           </div>
         </div>
         {supplyTokens > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span className="font-mono tabular-nums text-foreground">
-              {releasedTokens.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              <span className="text-muted-foreground"> / {supplyTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} tokens released</span>
-            </span>
-            <span className="font-mono tabular-nums">{releasedPct.toFixed(1)}%</span>
-            <span className="font-mono tabular-nums">{releasePerMin.toLocaleString(undefined, { maximumFractionDigits: 2 })} tok/min</span>
-            <span className="hidden sm:inline">· even per-block issuance</span>
+          <div className="mt-2 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-mono tabular-nums text-foreground">
+                {releasedTokens.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                <span className="text-muted-foreground"> / {supplyTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} tokens released</span>
+              </span>
+              <span className="font-mono tabular-nums">{releasedPct.toFixed(1)}%</span>
+              <span className="font-mono tabular-nums">{releasePerMin.toLocaleString(undefined, { maximumFractionDigits: 2 })} tok/min</span>
+              <span className="hidden sm:inline">· even per-block issuance</span>
+            </div>
+            <Progress value={releasedPct} className="h-1.5" />
           </div>
         )}
       </CardHeader>
@@ -739,48 +748,16 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                 </ComposedChart>
               </ResponsiveContainer>
               </div>
-              {/* Issuance strip: the released-supply line ticking up in real time,
-                  its dashed projection to auction close, and where each side's
-                  cleared amount sits against it. Same time axis as the price chart. */}
-              {supplyTokens > 0 && startTime && endTime && (
-                <div className="h-20 mt-1">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart margin={{ top: 4, right: 20, bottom: 0, left: 0 }}>
-                      <XAxis
-                        dataKey="time"
-                        type="number"
-                        scale="linear"
-                        domain={[startTime, endTime]}
-                        hide
-                      />
-                      <YAxis
-                        domain={[0, supplyTokens * 1.05]}
-                        width={72}
-                        fontSize={10}
-                        stroke={textColor}
-                        tick={{ fill: textColor }}
-                        tickFormatter={(v: number) => `${formatPriceShort(v)} tok`}
-                        tickCount={3}
-                      />
-                      <Tooltip
-                        contentStyle={tooltipStyle}
-                        formatter={(value: any, name: any) => [`${formatPriceFull(Number(value))} tokens`, name]}
-                        labelFormatter={(label: any) => timeTickFormatter(Number(label))}
-                      />
-                      <Area data={emissionSeries.done} name="Released" type="linear" dataKey="released" stroke={textColor} strokeWidth={1.5} fill={textColor} fillOpacity={0.12} isAnimationActive={false} dot={false} />
-                      <Line data={emissionSeries.ahead} name="To release" type="linear" dataKey="released" stroke={textColor} strokeWidth={1.5} strokeDasharray="4 4" opacity={0.45} dot={false} isAnimationActive={false} />
-                      {clearedYesTokens > 0 && <ReferenceLine y={clearedYesTokens} stroke={YES_COLOR} strokeWidth={1.5} opacity={0.8} label={{ value: "YES sold", position: "insideBottomRight", fill: YES_COLOR, fontSize: 10 }} />}
-                      {clearedNoTokens > 0 && <ReferenceLine y={clearedNoTokens} stroke={NO_COLOR} strokeWidth={1.5} opacity={0.8} label={{ value: "NO sold", position: "insideBottomRight", fill: NO_COLOR, fontSize: 10 }} />}
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
             </div>
           </TabsContent>
           <TabsContent value="demand" className={fullHeight ? "flex-1" : undefined}>
-            <div className={cnDemandGrid}>
-              <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
-              {yesDemand.length === 0 && noDemand.length === 0 ? (
+            {/* The classic auction order-book (Gnosis-style): cumulative token
+                demand at or above each price, against the horizontal supply
+                lines. Where a side's curve crosses the released-supply line is
+                where its clearing settles — and the released line RISES every
+                block, which is the whole CCA idea in one picture. */}
+            <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
+              {yesTokenDemand.length === 0 && noTokenDemand.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   No active bids yet — the demand curve builds as bids arrive.
                 </div>
@@ -791,46 +768,69 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     <XAxis
                       dataKey="price"
                       type="number"
-                      domain={["auto", "auto"]}
+                      domain={[0, demandXMax]}
                       tickFormatter={(v: number) => `$${formatPriceShort(v)}`}
                       stroke={textColor}
                       fontSize={12}
                       tick={{ fill: textColor }}
                       axisLine={{ stroke: textColor }}
-                      label={{ value: "Max price per token", position: "insideBottom", offset: -5, fill: textColor, fontSize: 11 }}
+                      label={{ value: "Price per token", position: "insideBottom", offset: -5, fill: textColor, fontSize: 11 }}
                     />
                     <YAxis
                       stroke={textColor}
                       fontSize={12}
                       tick={{ fill: textColor }}
-                      tickFormatter={(v: number) => `$${formatPriceShort(v)}`}
+                      domain={[0, demandYMax]}
+                      tickFormatter={(v: number) => formatPriceShort(v)}
                       width={72}
-                      label={{ value: "Demand at ≥ price", angle: -90, position: "insideLeft", fill: textColor, fontSize: 11 }}
+                      label={{ value: "Tokens demanded", angle: -90, position: "insideLeft", fill: textColor, fontSize: 11 }}
                     />
                     <Tooltip
                       contentStyle={tooltipStyle}
-                      formatter={(value: any, name: any) => [`$${formatPriceFull(Number(value))}`, `${name} demand`]}
+                      formatter={(value: any, name: any) => [`${formatPriceFull(Number(value))} tokens`, name]}
                       labelFormatter={(label: any) => `at ≥ $${formatPriceFull(Number(label))}`}
                     />
-                    {yesPriceNow > 0 && <ReferenceLine x={yesPriceNow} stroke={YES_COLOR} strokeDasharray="4 4" opacity={0.6} />}
-                    {noPriceNow > 0 && <ReferenceLine x={noPriceNow} stroke={NO_COLOR} strokeDasharray="4 4" opacity={0.6} />}
-                    <Line data={yesDemand} name="YES" type="stepAfter" dataKey="demand" stroke={YES_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
-                    <Line data={noDemand} name="NO" type="stepAfter" dataKey="demand" stroke={NO_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    {/* Supply: what's released so far (rises every block) and the full auction supply */}
+                    <ReferenceLine
+                      y={releasedTokens}
+                      stroke={textColor}
+                      strokeWidth={1.5}
+                      label={{ value: `released now · ${releasedTokens.toFixed(1)} tok`, position: "insideTopRight", fill: textColor, fontSize: 10, opacity: 0.8 }}
+                    />
+                    <ReferenceLine
+                      y={supplyTokens}
+                      stroke={textColor}
+                      strokeDasharray="4 4"
+                      opacity={0.4}
+                      label={{ value: "total supply", position: "insideTopRight", fill: textColor, fontSize: 10, opacity: 0.6 }}
+                    />
+    {/* Floor + live clearing per side. All three often sit on the same
+                        price early on (clearing starts at the floor) — collapse
+                        the labels instead of stacking them on one line. */}
+                    {(() => {
+                      const close = (a: number, b: number) => Math.abs(a - b) < Math.max(a, b) * 0.01
+                      const bothAtFloor = typeof startPrice === "number" && close(yesPriceNow, startPrice) && close(noPriceNow, startPrice)
+                      if (bothAtFloor) {
+                        return (
+                          <ReferenceLine x={startPrice} stroke={textColor} strokeDasharray="4 4" opacity={0.6} label={{ value: "clearing · at floor", position: "insideTop", fill: textColor, fontSize: 10, opacity: 0.8 }} />
+                        )
+                      }
+                      const sameClearing = close(yesPriceNow, noPriceNow)
+                      return (
+                        <>
+                          {typeof startPrice === "number" && !close(yesPriceNow, startPrice) && !close(noPriceNow, startPrice) && (
+                            <ReferenceLine x={startPrice} stroke={textColor} strokeDasharray="4 4" opacity={0.4} label={{ value: "floor", position: "insideBottom", fill: textColor, fontSize: 10, opacity: 0.6 }} />
+                          )}
+                          {yesPriceNow > 0 && <ReferenceLine x={yesPriceNow} stroke={YES_COLOR} strokeDasharray="4 4" opacity={0.7} label={{ value: sameClearing ? "YES & NO clearing" : "YES clearing", position: "insideTop", fill: YES_COLOR, fontSize: 10 }} />}
+                          {noPriceNow > 0 && !sameClearing && <ReferenceLine x={noPriceNow} stroke={NO_COLOR} strokeDasharray="4 4" opacity={0.7} label={{ value: "NO clearing", position: "insideBottom", fill: NO_COLOR, fontSize: 10 }} />}
+                        </>
+                      )
+                    })()}
+                    <Area data={yesTokenDemand} name="YES demand" type="stepAfter" dataKey="tokens" stroke={YES_COLOR} strokeWidth={2} fill={YES_COLOR} fillOpacity={0.1} dot={false} isAnimationActive={false} />
+                    <Area data={noTokenDemand} name="NO demand" type="stepAfter" dataKey="tokens" stroke={NO_COLOR} strokeWidth={2} fill={NO_COLOR} fillOpacity={0.1} dot={false} isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               )}
-              </div>
-              <MechanismInset
-                yesBids={yesRawBids}
-                noBids={noRawBids}
-                releasedTokens={releasedTokens}
-                totalSupplyTokens={supplyTokens}
-                floorPrice={startPrice ?? 0}
-                clearingYes={yesPriceNow}
-                clearingNo={noPriceNow}
-                yesColor={YES_COLOR}
-                noColor={NO_COLOR}
-              />
             </div>
           </TabsContent>
         </Tabs>
