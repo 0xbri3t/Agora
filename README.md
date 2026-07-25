@@ -7,7 +7,7 @@ Currently live on!:
 
 ---
 
-Developers: [Arnau Briet](@bri3t) & [Pau Gallego](@PauGallego)
+Developers: [Arnau Briet](@bri3t)
 
 Mentor: [Alex Arteaga](@alex-alra-arteaga)
 
