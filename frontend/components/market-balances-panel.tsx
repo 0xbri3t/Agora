@@ -28,6 +28,8 @@ function ClaimAuctionTokens({ auctionAddress, side, onClaimed }: {
 
   if (!auctionAddress || bids.length === 0) return null
 
+  const committedUsdc = Number(bids.reduce((s, b) => s + b.amount, 0n)) / 1e6
+
   const claimAll = async () => {
     setClaiming(true)
     try {
@@ -44,10 +46,15 @@ function ClaimAuctionTokens({ auctionAddress, side, onClaimed }: {
   }
 
   return (
-    <Button size="sm" variant="outline" className="w-full" onClick={claimAll} disabled={claiming || isWorking}>
-      {(claiming || isWorking) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-      Claim {side} auction tokens ({bids.length} bid{bids.length > 1 ? "s" : ""})
-    </Button>
+    <div className="space-y-1">
+      <Button size="sm" variant="outline" className="w-full" onClick={claimAll} disabled={claiming || isWorking}>
+        {(claiming || isWorking) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        Claim {side} auction tokens · {committedUsdc.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC bid
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        Your auction tokens appear in the balance after claiming.
+      </p>
+    </div>
   )
 }
 
