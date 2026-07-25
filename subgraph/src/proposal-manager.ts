@@ -1,8 +1,10 @@
-import { BigInt } from "@graphprotocol/graph-ts";
+import { Address, BigInt } from "@graphprotocol/graph-ts";
 import { ProposalCreated } from "../generated/ProposalManager/ProposalManager";
 import { Proposal as ProposalContract } from "../generated/ProposalManager/Proposal";
-import { Proposal as ProposalTemplate } from "../generated/templates";
-import { Market, Proposal } from "../generated/schema";
+import { CCAuction as CCAuctionContract } from "../generated/ProposalManager/CCAuction";
+import { CCAuction as CCAuctionTemplate, Proposal as ProposalTemplate } from "../generated/templates";
+import { Auction, Market, Proposal } from "../generated/schema";
+import { q96ToPrice6d } from "./helpers";
 
 export function handleProposalCreated(event: ProposalCreated): void {
   const address = event.params.proposal;
@@ -37,6 +39,10 @@ export function handleProposalCreated(event: ProposalCreated): void {
     market.openQuoteCount = 0;
     market.save();
     proposal.yesMarket = market.id;
+
+    const auction = contract.try_yesAuction();
+    if (!auction.reverted) market.auction = createAuction(auction.value, id, market.id, "YES");
+    market.save();
   }
   if (!noToken.reverted) {
     const market = new Market(noToken.value.toHexString());
@@ -48,10 +54,32 @@ export function handleProposalCreated(event: ProposalCreated): void {
     market.openQuoteCount = 0;
     market.save();
     proposal.noMarket = market.id;
+
+    const auction = contract.try_noAuction();
+    if (!auction.reverted) market.auction = createAuction(auction.value, id, market.id, "NO");
+    market.save();
   }
 
   proposal.save();
 
   // Track this proposal's lifecycle events (activation, TWAPs, resolution).
   ProposalTemplate.create(address);
+}
+
+/** Index a proposal's Uniswap CCA and start tracking its bids. */
+function createAuction(address: Address, proposalId: string, marketId: string, side: string): string {
+  const id = address.toHexString();
+  const auction = new Auction(id);
+  auction.proposal = proposalId;
+  auction.market = marketId;
+  auction.side = side;
+  auction.bidCount = 0;
+  auction.totalBidAmount = BigInt.zero();
+
+  const clearing = CCAuctionContract.bind(address).try_clearingPrice();
+  auction.clearingPrice = clearing.reverted ? BigInt.zero() : q96ToPrice6d(clearing.value);
+  auction.save();
+
+  CCAuctionTemplate.create(address);
+  return id;
 }

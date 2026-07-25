@@ -8,9 +8,9 @@ dataSources:
     name: ProposalManager
     network: sepolia
     source:
-      address: "0xf9E1997Eb57845AC72A280d7317485006bAABB33"
+      address: "0x8C069587f3626A0d31D202e93de446871Ec1EdF5"
       abi: ProposalManager
-      startBlock: 11343635
+      startBlock: 11348446
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.7
@@ -18,11 +18,14 @@ dataSources:
       entities:
         - Proposal
         - Market
+        - Auction
       abis:
         - name: ProposalManager
           file: ./abis/ProposalManager.json
         - name: Proposal
           file: ./abis/Proposal.json
+        - name: CCAuction
+          file: ./abis/CCAuction.json
       eventHandlers:
         - event: ProposalCreated(indexed uint256,indexed address,address,string)
           handler: handleProposalCreated
@@ -77,6 +80,31 @@ dataSources:
           handler: handleSwapped
       file: ./src/router.ts
 templates:
+  - kind: ethereum
+    name: CCAuction
+    network: sepolia
+    source:
+      abi: CCAuction
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Auction
+        - Bid
+      abis:
+        - name: CCAuction
+          file: ./abis/CCAuction.json
+      eventHandlers:
+        - event: BidSubmitted(indexed uint256,indexed address,uint256,uint128)
+          handler: handleBidSubmitted
+        - event: BidExited(indexed uint256,indexed address,uint256,uint256)
+          handler: handleBidExited
+        - event: TokensClaimed(indexed uint256,indexed address,uint256)
+          handler: handleTokensClaimed
+        - event: ClearingPriceUpdated(uint256,uint256)
+          handler: handleClearingPriceUpdated
+      file: ./src/cca.ts
   - kind: ethereum
     name: Proposal
     network: sepolia

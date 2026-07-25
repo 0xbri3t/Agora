@@ -21,6 +21,18 @@ export interface CopilotInsights {
     violations: { maker: string; askYes: string; askNo: string; excessUsdc6d: string }[]
   }
   trend: { direction: string; leading: string; points: number } | null
+  /** Uniswap CCA bootstrap phase signal (null once trading takes over) */
+  auction: {
+    clearingYes: string
+    clearingNo: string
+    bidsYes: number
+    bidsNo: number
+    committedUsdc: string
+    yesShareBps: number | null
+    concentrationYesBps: number | null
+    concentrationNoBps: number | null
+    leaning: string | null
+  } | null
   summary: string
 }
 

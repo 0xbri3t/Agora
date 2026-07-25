@@ -3,6 +3,7 @@ const {
   impliedProbability,
   detectArbitrage,
   twapTrend,
+  auctionSignal,
   summarize,
 } = require('../src/services/copilotService');
 
@@ -15,7 +16,17 @@ const base = {
   asksYes: [],
   asksNo: [],
   twapHistory: [],
+  auctionYes: null,
+  auctionNo: null,
 };
+
+/** Build one side's CCA state from a list of bid amounts (USDC 6d). */
+const auctionSide = (bids) => ({
+  clearingPrice: 500000n,
+  bidCount: bids.length,
+  totalBidAmount: bids.reduce((sum, b) => sum + b, 0n),
+  bids: bids.map((amount) => ({ bidder: '0xa', maxPrice: 600000n, amount })),
+});
 
 describe('impliedProbability', () => {
   test('prefers TWAPs when present', () => {
@@ -101,7 +112,55 @@ describe('twapTrend', () => {
   });
 });
 
+describe('auctionSignal', () => {
+  test('reads which side the CCA bidders are backing', () => {
+    const signal = auctionSignal({
+      ...base,
+      status: 'AUCTION',
+      auctionYes: auctionSide([700_000000n, 100_000000n]),
+      auctionNo: auctionSide([200_000000n]),
+    });
+    expect(signal.bidsYes).toBe(2);
+    expect(signal.bidsNo).toBe(1);
+    expect(signal.committedUsdc).toBe('1000000000');
+    expect(signal.yesShareBps).toBe(8000);
+    expect(signal.leaning).toBe('YES');
+  });
+
+  test('flags demand concentrated in one bid', () => {
+    const signal = auctionSignal({
+      ...base,
+      status: 'AUCTION',
+      auctionYes: auctionSide([950_000000n, 50_000000n]),
+      auctionNo: auctionSide([500_000000n, 500_000000n]),
+    });
+    expect(signal.concentrationYesBps).toBe(9500);
+    expect(signal.concentrationNoBps).toBe(5000);
+    expect(signal.leaning).toBe('BALANCED');
+  });
+
+  test('null without auction data or bids', () => {
+    expect(auctionSignal(base)).toBeNull();
+    expect(auctionSignal({ ...base, auctionYes: auctionSide([]), auctionNo: auctionSide([]) })).toBeNull();
+  });
+});
+
 describe('summarize', () => {
+  test('leads with the bootstrap read while the proposal is in auction', () => {
+    const data = {
+      ...base,
+      status: 'AUCTION',
+      auctionYes: auctionSide([950_000000n, 50_000000n]),
+      auctionNo: auctionSide([200_000000n]),
+    };
+    const signal = auctionSignal(data);
+    const text = summarize(data, null, detectArbitrage(data), null, signal);
+    expect(text).toContain('Bootstrap phase');
+    expect(text).toContain('1200.00 USDC');
+    expect(text).toContain('leaning YES');
+    expect(text).toContain('rests on a single participant');
+  });
+
   test('weaves probability, trend and arbitrage into prose', () => {
     const data = { ...base, twapYes: 600000n, twapNo: 400000n };
     const probability = impliedProbability(data);

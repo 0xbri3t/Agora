@@ -6,6 +6,14 @@ export const ROUTER_ADDRESS = "0x4cf2713d08c5e439409b56efa4027f25eb0f6431";
 
 export const WAD = BigInt.fromString("1000000000000000000");
 
+// Uniswap CCA prices are Q96 currency-per-token-wei; our convention is
+// USDC 6d per 1e18 token.
+export const Q96 = BigInt.fromI32(2).pow(96);
+
+export function q96ToPrice6d(priceQ96: BigInt): BigInt {
+  return priceQ96.times(WAD).div(Q96);
+}
+
 /** USDC (6d) per 1e18 outcome token. */
 export function lotPrice(lotUsdc: BigInt, lotToken: BigInt): BigInt {
   if (lotToken.isZero()) return BigInt.zero();

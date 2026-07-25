@@ -49,12 +49,50 @@ type Proposal @entity(immutable: false) {
   twapHistory: [TwapPoint!]! @derivedFrom(field: "proposal")
 }
 
+"The Uniswap Continuous Clearing Auction that bootstrapped one side of a market."
+type Auction @entity(immutable: false) {
+  "CCA contract address"
+  id: ID!
+  proposal: Proposal!
+  market: Market!
+  side: MarketSide!
+  "Latest clearing price, USDC 6d per 1e18 token"
+  clearingPrice: BigInt!
+  bidCount: Int!
+  "Total currency committed across bids (USDC 6d)"
+  totalBidAmount: BigInt!
+  bids: [Bid!]! @derivedFrom(field: "auction")
+}
+
+"A bid on a CCA: a budget with a max price."
+type Bid @entity(immutable: false) {
+  "auction address - bidId"
+  id: ID!
+  auction: Auction!
+  bidder: Bytes!
+  bidId: BigInt!
+  "Max price the bidder accepts, USDC 6d per 1e18 token"
+  maxPrice: BigInt!
+  "Currency committed (USDC 6d)"
+  amount: BigInt!
+  "Tokens allocated once the bid is exited"
+  tokensFilled: BigInt
+  "Currency returned once the bid is exited"
+  currencyRefunded: BigInt
+  exited: Boolean!
+  claimed: Boolean!
+  createdAt: BigInt!
+  txHash: Bytes!
+}
+
 "One outcome-token market (YES or NO side of a proposal). Id = outcome token address."
 type Market @entity(immutable: false) {
   id: ID!
   proposal: Proposal!
   side: MarketSide!
   token: Bytes!
+  "The CCA that bootstrapped this side"
+  auction: Auction
   "Cumulative filled volume in USDC (6d)"
   volumeUsdc: BigInt!
   fillCount: Int!

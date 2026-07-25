@@ -49,6 +49,24 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
               </div>
             )}
 
+            {insights.auction && (
+              <div className="space-y-1.5 border-t border-border pt-3">
+                <div className="flex justify-between text-sm">
+                  <span>Auction bids</span>
+                  <span className="font-mono tabular-nums">
+                    {insights.auction.bidsYes + insights.auction.bidsNo} ·{" "}
+                    {fmtUsdc(insights.auction.committedUsdc)} USDC
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Uniswap CCA bootstrap
+                  {insights.auction.leaning && insights.auction.leaning !== "BALANCED"
+                    ? ` · capital leaning ${insights.auction.leaning}`
+                    : " · capital split evenly"}
+                </p>
+              </div>
+            )}
+
             {insights.arbitrage.buyBoth && (
               <div className="rounded-md border border-border bg-muted/50 p-3 text-sm">
                 <p className="font-medium">Arbitrage detected</p>

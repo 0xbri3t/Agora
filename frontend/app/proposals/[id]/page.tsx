@@ -305,6 +305,9 @@ export default function ProposalDetailPage({ params }: PageProps) {
                 userBalance={(userBalance as any)}
               />
             </div>
+            <div className="lg:col-span-1">
+              <CopilotPanel proposalId={proposal.id} />
+            </div>
           </>
         ) : (
           (proposal as any).marketData && (
