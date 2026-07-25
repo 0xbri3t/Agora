@@ -6,12 +6,15 @@
 //
 // The three insights mirror the protocol's economics:
 //  - implied probability: TWAP(YES) vs TWAP(NO) — which world the market picks
-//  - arbitrage: price(YES) + price(NO) must be <= 1 USDC. The AgoraComplement
-//    SwapVM instruction enforces it per maker; the copilot watches it globally
-//    across makers (buy-both < 1 and per-maker violations).
+//  - dispersion: outcome tokens price the subject asset in each world (a
+//    forecast, not a probability), so the copilot reads the spread between the
+//    two sides and flags makers quoting them far apart — the same behaviour the
+//    AgoraComplement SwapVM instruction rejects at fill time.
 //  - TWAP trend: where the resolution metric is heading.
 
-const ONE_USDC = 1_000_000n;
+// How far a single maker's two forecasts may sit apart before the copilot
+// calls it out; mirrors the bound the AgoraComplement instruction enforces.
+const MAX_MAKER_DIVERGENCE_BPS = 2000; // 20%
 
 // ---------------------------------------------------------------------------
 // Data fetching
@@ -178,7 +181,11 @@ async function fetchProposalData(proposalId) {
 // Analytics (pure — unit tested)
 // ---------------------------------------------------------------------------
 
-/** Probability (basis points) that the proposal passes, from TWAPs or best asks. */
+/**
+ * How the market values the YES world relative to both, in basis points.
+ * These are forecasts of the subject asset, so this is a relative valuation
+ * (a 6000 reading means YES is priced 1.5x the NO world), not a probability.
+ */
 function impliedProbability(data) {
   let yes = data.twapYes;
   let no = data.twapNo;
@@ -194,25 +201,31 @@ function impliedProbability(data) {
 }
 
 /**
- * The invariant is price(YES) + price(NO) <= 1 USDC.
- * - buyBoth: cheapest YES + cheapest NO under 1 USDC across ALL makers means a
- *   risk-free basket (one of the two always redeems for 1).
- * - violations: a single maker quoting a pair that sums over 1 USDC is selling
- *   an overpriced book — exactly what the AgoraComplement instruction blocks
- *   at the VM level when armed.
+ * Agora prices are FORECASTS of the subject asset in each world, not
+ * probabilities, so there is no YES + NO = 1 identity to arbitrage. What the
+ * copilot watches instead is dispersion, because resolution compares
+ * TWAP(YES) against TWAP(NO):
+ * - spread: how far apart the two sides' best forecasts sit, and which world
+ *   the book currently says is worth more.
+ * - outliers: a maker quoting both sides far apart from each other can swing
+ *   that comparison cheaply — the same behaviour the AgoraComplement VM
+ *   instruction rejects at fill time when a maker arms it.
  */
 function detectArbitrage(data) {
-  const result = { buyBoth: null, violations: [] };
+  const result = { spread: null, violations: [] };
 
   if (data.asksYes.length > 0 && data.asksNo.length > 0) {
-    const sum = data.asksYes[0].price + data.asksNo[0].price;
-    if (sum < ONE_USDC) {
-      result.buyBoth = {
-        askYes: data.asksYes[0].price.toString(),
-        askNo: data.asksNo[0].price.toString(),
-        edgeUsdc6d: (ONE_USDC - sum).toString(),
-      };
-    }
+    const yesPrice = data.asksYes[0].price;
+    const noPrice = data.asksNo[0].price;
+    const low = yesPrice < noPrice ? yesPrice : noPrice;
+    const high = yesPrice < noPrice ? noPrice : yesPrice;
+    result.spread = {
+      askYes: yesPrice.toString(),
+      askNo: noPrice.toString(),
+      gapUsdc6d: (high - low).toString(),
+      gapBps: low === 0n ? null : Number(((high - low) * 10000n) / low),
+      leading: yesPrice > noPrice ? 'YES' : yesPrice < noPrice ? 'NO' : 'TIED',
+    };
   }
 
   const minBy = (asks) => {
@@ -227,12 +240,17 @@ function detectArbitrage(data) {
   const noByMaker = minBy(data.asksNo);
   for (const [maker, yesPrice] of yesByMaker) {
     const noPrice = noByMaker.get(maker);
-    if (noPrice !== undefined && yesPrice + noPrice > ONE_USDC) {
+    if (noPrice === undefined) continue;
+    const low = yesPrice < noPrice ? yesPrice : noPrice;
+    const high = yesPrice < noPrice ? noPrice : yesPrice;
+    if (low === 0n) continue;
+    const gapBps = Number(((high - low) * 10000n) / low);
+    if (gapBps > MAX_MAKER_DIVERGENCE_BPS) {
       result.violations.push({
         maker,
         askYes: yesPrice.toString(),
         askNo: noPrice.toString(),
-        excessUsdc6d: (yesPrice + noPrice - ONE_USDC).toString(),
+        gapBps,
       });
     }
   }
@@ -332,22 +350,23 @@ function summarize(data, probability, arbitrage, trend, auction) {
     );
   }
 
-  if (arbitrage.buyBoth) {
+  if (arbitrage.spread && arbitrage.spread.leading !== 'TIED') {
     lines.push(
-      `Arbitrage: buying the cheapest YES (${fmtUsdc(arbitrage.buyBoth.askYes)} USDC) plus ` +
-      `the cheapest NO (${fmtUsdc(arbitrage.buyBoth.askNo)} USDC) costs under 1 USDC — a ` +
-      `risk-free ${fmtUsdc(arbitrage.buyBoth.edgeUsdc6d)} USDC edge per basket, since one side always redeems.`
+      `The book forecasts ${fmtUsdc(arbitrage.spread.askYes)} USDC per token if it passes versus ` +
+      `${fmtUsdc(arbitrage.spread.askNo)} if it does not — ${arbitrage.spread.leading} ahead by ` +
+      `${fmtUsdc(arbitrage.spread.gapUsdc6d)} USDC` +
+      (arbitrage.spread.gapBps === null ? '.' : ` (${(arbitrage.spread.gapBps / 100).toFixed(1)}%).`)
     );
   }
   for (const v of arbitrage.violations) {
     lines.push(
-      `Maker ${v.maker.slice(0, 10)}… quotes YES+NO at ${fmtUsdc(v.askYes)}+${fmtUsdc(v.askNo)} ` +
-      `> 1 USDC (overpriced by ${fmtUsdc(v.excessUsdc6d)}) — the AgoraComplement VM instruction ` +
-      `rejects exactly this when armed.`
+      `Maker ${v.maker.slice(0, 10)}… quotes the two worlds ${(v.gapBps / 100).toFixed(0)}% apart ` +
+      `(${fmtUsdc(v.askYes)} vs ${fmtUsdc(v.askNo)} USDC) — wide enough to swing the TWAP comparison ` +
+      `cheaply, and exactly what the AgoraComplement VM instruction rejects when armed.`
     );
   }
-  if (!arbitrage.buyBoth && arbitrage.violations.length === 0) {
-    lines.push('No YES+NO pricing inconsistencies across makers right now.');
+  if (arbitrage.violations.length === 0 && arbitrage.spread) {
+    lines.push('No maker is quoting the two worlds far apart right now.');
   }
 
   if (data.status === 'RESOLVED' && data.winner) {

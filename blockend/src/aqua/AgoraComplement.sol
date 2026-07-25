@@ -4,25 +4,40 @@ pragma solidity 0.8.30;
 import {IExtruction, IStaticExtruction} from "@1inch-swap-vm/src/instructions/Extruction.sol";
 import {SwapQuery, SwapRegisters} from "@1inch-swap-vm/src/libs/VM.sol";
 
-/// @notice Custom SwapVM instruction logic for futarchy markets, invoked via the
-///         `_extruction` opcode: enforces the complementary-outcome no-arbitrage
-///         invariant `price(YES) + price(NO) <= 1 USDC` at VM execution time.
-/// @dev The lot's own price is derived from the Aqua-preloaded virtual balances
-///      (balanceIn = USDC 6d, balanceOut = outcome token 18d). The paired side's
-///      price is embedded in the instruction args by the maker at program-build
-///      time. Deterministic, stateless and identical for quote (static) and swap
-///      paths — as required by the Extruction security contract. Immutable: no
-///      storage, no owner, no external calls.
+/// @notice Custom SwapVM instruction for Agora's futarchy markets, invoked via
+///         the `_extruction` opcode: bounds how far apart a single maker may
+///         quote the two conditional outcomes of the same proposal.
+/// @dev Agora prices are FORECASTS, not probabilities. An outcome token trades
+///      at the expected value of the subject asset in that world (e.g. "ETH is
+///      worth ~3000 USDC if this proposal passes"), so YES and NO do NOT sum to
+///      one — the probability-market invariant `YES + NO <= 1` belongs to
+///      Polymarket-style venues and would reject every realistic quote here.
+///
+///      What does need bounding is the SPREAD between a maker's own two sides.
+///      Resolution compares TWAP(YES) against TWAP(NO), so a maker quoting one
+///      side far away from the other can swing the decision cheaply while
+///      calling both quotes "their view". Keeping the two forecasts within
+///      `maxDivergenceBps` of each other forces anyone who wants to move the
+///      outcome to move BOTH sides — which costs real capital, and is what
+///      honest disagreement looks like anyway.
+///
+///      The paired side's price is embedded in the instruction args by the
+///      maker at program-build time. Deterministic, stateless and identical on
+///      the quote (static) and swap paths, as the Extruction security contract
+///      requires. Immutable: no storage, no owner, no external calls.
 contract AgoraComplement is IExtruction, IStaticExtruction {
-    /// @notice One full unit of probability in USDC 6d (YES + NO must not exceed it)
-    uint256 public constant ONE_USDC = 1_000000;
+    /// @notice Basis-point denominator
+    uint256 public constant BPS = 10_000;
 
-    error ComplementViolation(uint256 ownPrice6d, uint256 pairedPrice6d);
-    error ComplementMissingPairedPrice();
+    error ComplementDivergence(uint256 ownPrice6d, uint256 pairedPrice6d, uint256 maxDivergenceBps);
+    error ComplementMissingArgs();
     error ComplementZeroBalances(uint256 balanceIn, uint256 balanceOut);
+    error ComplementInvalidBound(uint256 maxDivergenceBps);
 
-    /// @dev args = abi.encodePacked(uint256 pairedPrice6d) — price of the maker's
-    ///      OTHER outcome lot (NO if this is YES), USDC 6d per 1e18 token.
+    /// @dev args = abi.encodePacked(uint256 pairedPrice6d, uint256 maxDivergenceBps)
+    ///      pairedPrice6d: the maker's forecast on the OTHER outcome (USDC 6d
+    ///      per 1e18 token). maxDivergenceBps: how far the two may diverge,
+    ///      measured against the lower of the two.
     function extruction(
         bool, /* isStaticContext */
         uint256 nextPC,
@@ -35,17 +50,26 @@ contract AgoraComplement is IExtruction, IStaticExtruction {
         uint256 choppedLength,
         SwapRegisters memory updatedSwap
     ) {
-        if (args.length < 32) revert ComplementMissingPairedPrice();
+        if (args.length < 64) revert ComplementMissingArgs();
         uint256 pairedPrice6d = uint256(bytes32(args[0:32]));
+        uint256 maxDivergenceBps = uint256(bytes32(args[32:64]));
+        if (maxDivergenceBps == 0) revert ComplementInvalidBound(maxDivergenceBps);
 
         if (swap.balanceIn == 0 || swap.balanceOut == 0) {
             revert ComplementZeroBalances(swap.balanceIn, swap.balanceOut);
         }
-        // Own price: USDC (6d) per 1e18 outcome token, from the lot's balance ratio.
+        // Own forecast: USDC (6d) per 1e18 outcome token, from the lot's ratio.
         uint256 ownPrice6d = (swap.balanceIn * 1e18) / swap.balanceOut;
 
-        if (ownPrice6d + pairedPrice6d > ONE_USDC) {
-            revert ComplementViolation(ownPrice6d, pairedPrice6d);
+        (uint256 low, uint256 high) = ownPrice6d < pairedPrice6d
+            ? (ownPrice6d, pairedPrice6d)
+            : (pairedPrice6d, ownPrice6d);
+        // A zero forecast on either side has no meaningful spread to bound
+        if (low == 0) revert ComplementDivergence(ownPrice6d, pairedPrice6d, maxDivergenceBps);
+
+        // (high - low) / low, in basis points
+        if (((high - low) * BPS) / low > maxDivergenceBps) {
+            revert ComplementDivergence(ownPrice6d, pairedPrice6d, maxDivergenceBps);
         }
 
         // Pass-through: no state change, no taker-args consumption, continue at nextPC.

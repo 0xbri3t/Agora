@@ -69,21 +69,26 @@ contract AgoraQuoteBuilder is LimitOpcodes {
     }
 
     /// @notice Like buildProgram, but prepends the AgoraComplement extruction:
-    ///         the VM itself rejects fills when ownPrice + pairedPrice > 1 USDC.
+    ///         the VM rejects the fill when this lot's forecast diverges from
+    ///         the maker's other outcome by more than `maxDivergenceBps`.
+    /// @dev Prices here are forecasts of the subject asset, not probabilities,
+    ///      so the two sides are bounded by their spread, never by a sum.
     /// @param complement Deployed AgoraComplement (immutable, stateless)
     /// @param pairedPrice6d Price of the maker's OTHER outcome lot (USDC 6d per 1e18 token)
+    /// @param maxDivergenceBps Allowed spread between both sides, in bps of the lower one
     function buildProgramWithComplement(
         address usdc,
         address outcomeToken,
         address complement,
         uint256 pairedPrice6d,
+        uint256 maxDivergenceBps,
         bytes32 salt
     ) public view returns (bytes memory) {
         Program memory p = ProgramBuilder.init(_opcodes());
 
         return bytes.concat(
-            // _extruction args = [target:20B][extructionArgs...] — ours: [pairedPrice:32B]
-            p.build(Extruction._extruction, abi.encodePacked(complement, pairedPrice6d)),
+            // _extruction args = [target:20B][pairedPrice:32B][maxDivergenceBps:32B]
+            p.build(Extruction._extruction, abi.encodePacked(complement, pairedPrice6d, maxDivergenceBps)),
             p.build(LimitSwap._limitSwapOnlyFull1D, LimitSwapArgsBuilder.build(usdc, outcomeToken)),
             p.build(Controls._salt, abi.encodePacked(salt))
         );

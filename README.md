@@ -27,7 +27,7 @@ Agora solves this: decisions are made by markets that put a price on their conse
 | Partner | Role in Agora |
 |---|---|
 | **Uniswap CCA** | Market bootstrap. Every proposal deploys two Continuous Clearing Auctions (YES/NO) through the canonical `ContinuousClearingAuctionFactory` — fair uniform-price liquidity seeding with a graduation gate and native refunds. |
-| **1inch Aqua / SwapVM** | Continuous trading. Makers ship fill-or-kill lot quotes with funds staying in their wallets; takers fill through the SwapVM router at exact prices. A custom SwapVM instruction (`AgoraComplement`) enforces `price(YES) + price(NO) ≤ 1 USDC` at VM execution time. |
+| **1inch Aqua / SwapVM** | Continuous trading. Makers ship fill-or-kill lot quotes with funds staying in their wallets; takers fill through the SwapVM router at exact prices. A custom SwapVM instruction (`AgoraComplement`) bounds how far apart a maker may quote the two worlds, at VM execution time. |
 | **The Graph** | Data layer. A Sepolia subgraph indexes proposals, Aqua lot quotes, fills and attestor-pushed TWAPs — and feeds the Agora copilot (implied probability, arbitrage watch, TWAP trend). |
 | **Pyth** | Oracle. Pull-based reference price of the subject asset at market creation (it also sets the CCA floor price); the options settlement design reads Pyth again at expiry. |
 
@@ -167,7 +167,7 @@ Why it's built this way:
 
 * The **frontend** uses **Viem/Wagmi** for contract interaction — CCA bids, Aqua fills, claims.
 * The **backend** indexes Aqua events (`Shipped`/`Swapped`/`Docked`) into the order book and pushes volume-weighted TWAPs on-chain as attestor.
-* The **copilot** answers over live market data from the subgraph (Mongo fallback on local forks): implied probability (which world the market picks), global `YES+NO ≤ 1` arbitrage watch, and TWAP trend.
+* The **copilot** answers over live market data from the subgraph (Mongo fallback on local forks): relative valuation of the two worlds, the spread between them, makers quoting them far apart, and TWAP trend.
 
 ---
 
@@ -235,7 +235,9 @@ Run tests: `cd blockend && forge test --match-path "test/cca/*"` (needs `SEPOLIA
 
 ## 1inch Aqua / SwapVM Integration (ETHGlobal Lisbon 2026)
 
-Agora's continuous-trading layer runs on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) <= 1 USDC` at VM execution time.
+Agora's continuous-trading layer runs on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) bounds maker dispersion at VM execution time.
+
+Agora prices are *forecasts*, not probabilities: an outcome token trades at what the subject asset is worth in that world ("ETH is ~3000 USDC if this passes"), so YES and NO never sum to one — that identity belongs to Polymarket-style venues. Since resolution compares TWAP(YES) against TWAP(NO), the risk worth blocking is a maker quoting one side far from the other to swing that comparison cheaply. `AgoraComplement` keeps a maker's two forecasts within a configurable spread, so moving the outcome means moving both sides — which costs real capital.
 
 ### Deployed contracts (Sepolia)
 
@@ -244,7 +246,7 @@ Agora's continuous-trading layer runs on **1inch Aqua + SwapVM**: maker quotes b
 | Aqua core (1inch, official) | [`0x499943E74FB0cE105688beeE8Ef2ABec5D936d31`](https://sepolia.etherscan.io/address/0x499943E74FB0cE105688beeE8Ef2ABec5D936d31) | Not redeployed — we ship/dock/pull/push against it |
 | LimitSwapVMRouter (our deployment) | [`0x4CF2713D08C5E439409b56efA4027F25EB0F6431`](https://sepolia.etherscan.io/address/0x4CF2713D08C5E439409b56efA4027F25EB0F6431) | Official SwapVM code; the canonical Sepolia router lacks limit opcodes |
 | AgoraQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
-| AgoraComplement (custom SwapVM instruction) | [`0x79B26dEA7d063aA011EfC3D51deeaB79Aa26aD08`](https://sepolia.etherscan.io/address/0x79B26dEA7d063aA011EfC3D51deeaB79Aa26aD08) | Enforces `price(YES) + price(NO) <= 1 USDC` inside the VM, via the `_extruction` opcode |
+| AgoraComplement (custom SwapVM instruction) | [`0xf73F159057f568956Ff739Fb72eA2036cDC569f9`](https://sepolia.etherscan.io/address/0xf73F159057f568956Ff739Fb72eA2036cDC569f9) | Bounds the spread between a maker's two forecasts inside the VM, via the `_extruction` opcode |
 | MockUSDC (demo) | [`0x34ad23A27Ae8A562928234D4415eD7225a44bB2E`](https://sepolia.etherscan.io/address/0x34ad23A27Ae8A562928234D4415eD7225a44bB2E) | 6-decimals demo collateral |
 | ProposalManager | [`0x8C069587f3626A0d31D202e93de446871Ec1EdF5`](https://sepolia.etherscan.io/address/0x8C069587f3626A0d31D202e93de446871Ec1EdF5) | Agora governance stack (Pyth-priced proposals) |
 

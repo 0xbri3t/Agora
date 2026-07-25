@@ -6,7 +6,7 @@ import { Progress } from "@/components/ui/progress"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot } from "recharts"
 import type { AuctionData, UserBalance } from "@/lib/types"
 import { formatUnits } from "viem"
-import { useEffect, useMemo, useState, useCallback, use } from "react"
+import { useEffect, useMemo, useState, useCallback, useRef, use } from "react"
 import { Clock } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useAccount, useReadContract, usePublicClient } from "wagmi"
@@ -39,6 +39,15 @@ const AnimatedDot = (props: any) => {
 }
 function useCountdown(endTime: bigint | number, nowOverride?: number) {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 })
+  // Wall-clock reading taken when the chain timestamp arrived, so the offset
+  // between the two stays fixed while the clock keeps ticking every second.
+  const driftRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (typeof nowOverride !== 'number') { driftRef.current = 0; return }
+    const chainNowSec = nowOverride > 1e12 ? Math.floor(nowOverride / 1000) : Math.floor(nowOverride)
+    driftRef.current = chainNowSec - Math.floor(Date.now() / 1000)
+  }, [nowOverride])
 
   useEffect(() => {
     const calculateTimeLeft = () => {
@@ -46,13 +55,9 @@ function useCountdown(endTime: bigint | number, nowOverride?: number) {
       // If it's a timestamp in milliseconds, convert to seconds
       if (endSec > 1e12) endSec = Math.floor(endSec / 1000)
 
-      // Derive current time from Date.now() each tick and apply drift from chain time if provided
-      const clientNowSec = Math.floor(Date.now() / 1000)
-      const chainNowSec = typeof nowOverride === 'number'
-        ? (nowOverride > 1e12 ? Math.floor(nowOverride / 1000) : Math.floor(nowOverride))
-        : clientNowSec
-      const drift = chainNowSec - clientNowSec
-      const nowSec = clientNowSec + drift
+      // Tick off the local clock, corrected by the chain offset. Using the
+      // block timestamp directly would freeze the countdown between blocks.
+      const nowSec = Math.floor(Date.now() / 1000) + driftRef.current
 
       const diff = endSec - nowSec
 
@@ -72,7 +77,7 @@ function useCountdown(endTime: bigint | number, nowOverride?: number) {
 
     const interval = setInterval(calculateTimeLeft, 1000)
     return () => clearInterval(interval)
-  }, [endTime, nowOverride])
+  }, [endTime])
 
   return timeLeft
 }
@@ -179,18 +184,22 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const effectiveEndTime = (typeof endTimeSec === "bigint" ? endTimeSec : auctionData.auctionEndTime)
   const timeLeft = useCountdown(effectiveEndTime, blockTimestamp)
 
-  // Compute remaining using overrides first, then on-chain read, then fallback to provided auctionData
+  // Unsold supply lives on the CCA: the outcome tokens are pre-minted in full
+  // to the auction at creation, so cap - totalSupply is always zero here.
+  const { data: yesUnsold } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: cca_abi, functionName: "remainingSupply" })
+  const { data: noUnsold } = useReadContract({ address: noAuctionAddr as `0x${string}` | undefined, abi: cca_abi, functionName: "remainingSupply" })
+
   const yesRemaining = useMemo(() => {
     if (typeof yesRemOverride === "bigint") return yesRemOverride
-    if (typeof yesCap === "bigint" && typeof yesSupply === "bigint") return yesCap - yesSupply
+    if (typeof yesUnsold === "bigint") return yesUnsold
     return auctionData.yesRemainingMintable
-  }, [yesRemOverride, yesCap, yesSupply, auctionData.yesRemainingMintable])
+  }, [yesRemOverride, yesUnsold, auctionData.yesRemainingMintable])
 
   const noRemaining = useMemo(() => {
     if (typeof noRemOverride === "bigint") return noRemOverride
-    if (typeof noCap === "bigint" && typeof noSupply === "bigint") return noCap - noSupply
+    if (typeof noUnsold === "bigint") return noUnsold
     return auctionData.noRemainingMintable
-  }, [noRemOverride, noCap, noSupply, auctionData.noRemainingMintable])
+  }, [noRemOverride, noUnsold, auctionData.noRemainingMintable])
 
   const yesRemainingPercent = useMemo(() => {
     if (typeof yesCap === "bigint" && yesCap > 0n) return Number((yesRemaining * 100n) / yesCap)
@@ -241,20 +250,14 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         const p: bigint = await publicClient.readContract({ address: noAuctionAddr as any, abi: cca_abi, functionName: "clearingPrice" })
         setNoPriceNow(Number(q96ToPrice6d(p)) / 1_000_000)
       }
-      // Remaining caps
-      if (yesTokenAddr) {
-        const [capNow, tsNow] = await Promise.all([
-          publicClient.readContract({ address: yesTokenAddr as any, abi: marketToken_abi, functionName: "cap" }) as Promise<bigint>,
-          publicClient.readContract({ address: yesTokenAddr as any, abi: marketToken_abi, functionName: "totalSupply" }) as Promise<bigint>,
-        ])
-        setYesRemOverride((capNow ?? 0n) - (tsNow ?? 0n))
+      // Unsold supply, straight from each CCA
+      if (yesAuctionAddr) {
+        const left: bigint = await publicClient.readContract({ address: yesAuctionAddr as any, abi: cca_abi, functionName: "remainingSupply" })
+        setYesRemOverride(left ?? 0n)
       }
-      if (noTokenAddr) {
-        const [capNow, tsNow] = await Promise.all([
-          publicClient.readContract({ address: noTokenAddr as any, abi: marketToken_abi, functionName: "cap" }) as Promise<bigint>,
-          publicClient.readContract({ address: noTokenAddr as any, abi: marketToken_abi, functionName: "totalSupply" }) as Promise<bigint>,
-        ])
-        setNoRemOverride((capNow ?? 0n) - (tsNow ?? 0n))
+      if (noAuctionAddr) {
+        const left: bigint = await publicClient.readContract({ address: noAuctionAddr as any, abi: cca_abi, functionName: "remainingSupply" })
+        setNoRemOverride(left ?? 0n)
       }
       // User balances
       if (address && yesTokenAddr) {

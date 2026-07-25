@@ -40,7 +40,7 @@ contract AgoraComplementTest is Test {
 
         yes.mint(maker, 100e18);
         no.mint(maker, 100e18);
-        usdc.mint(taker, 1_000e6);
+        usdc.mint(taker, 1_000_000e6);
 
         vm.startPrank(maker);
         yes.approve(AQUA_SEPOLIA, type(uint256).max);
@@ -52,16 +52,24 @@ contract AgoraComplementTest is Test {
         usdc.approve(address(router), type(uint256).max);
     }
 
+    /// Forecast prices: what the subject asset is worth in each world.
+    /// ~3000 USDC per token, i.e. 3000e6 in 6-decimal terms.
+    uint256 constant FORECAST_YES = 3000e6;
+    uint256 constant FORECAST_NO = 2800e6;   // ~6.7% below YES
+    uint256 constant FORECAST_FAR = 9000e6;  // 3x YES — an outlier quote
+    uint256 constant MAX_DIVERGENCE_BPS = 2000; // 20%
+
     /// Ship a lot whose program carries the complement guard.
     function _shipGuardedLot(
         MockOutcomeToken token,
-        uint256 price6d,       // this lot's price (encoded via ship amounts)
-        uint256 pairedPrice6d, // the paired side's price (checked by the VM)
+        uint256 price6d,       // this lot's forecast (encoded via ship amounts)
+        uint256 pairedPrice6d, // the paired side's forecast (checked by the VM)
         uint256 salt
     ) internal returns (ISwapVM.Order memory order, uint256 lotUsdc) {
         lotUsdc = (LOT_TOKEN * price6d) / 1e18;
         bytes memory program = builder.buildProgramWithComplement(
-            address(usdc), address(token), address(complement), pairedPrice6d, bytes32(salt)
+            address(usdc), address(token), address(complement),
+            pairedPrice6d, MAX_DIVERGENCE_BPS, bytes32(salt)
         );
         order = builder.buildOrder(maker, program);
 
@@ -75,8 +83,8 @@ contract AgoraComplementTest is Test {
     }
 
     function test_coherentPair_fills() public {
-        // YES at 0.60 paired with NO at 0.35 -> 0.95 <= 1.00 OK
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 350000, 1);
+        // Two nearby forecasts: 3000 vs 2800 is a ~6.7% spread, inside the 20% bound
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, FORECAST_NO, 1);
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.prank(taker);
@@ -86,19 +94,33 @@ contract AgoraComplementTest is Test {
         assertEq(amountOut, LOT_TOKEN);
     }
 
-    function test_arbitragePair_revertsAtVMLevel() public {
-        // YES at 0.60 paired with NO at 0.50 -> 1.10 > 1.00 -> the VM must reject the fill
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 500000, 2);
+    function test_divergentPair_revertsAtVMLevel() public {
+        // 3000 vs 9000 is a 200% spread: one side is being pushed to swing the
+        // TWAP comparison, so the VM must reject the fill.
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, FORECAST_FAR, 2);
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.prank(taker);
-        vm.expectRevert(abi.encodeWithSelector(AgoraComplement.ComplementViolation.selector, 600000, 500000));
+        vm.expectRevert(abi.encodeWithSelector(
+            AgoraComplement.ComplementDivergence.selector, FORECAST_YES, FORECAST_FAR, MAX_DIVERGENCE_BPS
+        ));
         router.swap(yesOrder, address(usdc), address(yes), yesUsdc, takerData);
+    }
+
+    function test_forecastsAboveOneUsdc_areAllowed() public {
+        // The old probability-style rule (YES + NO <= 1 USDC) would have
+        // rejected this: both forecasts are thousands of USDC per token.
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, FORECAST_NO, 9);
+        bytes memory takerData = builder.buildTakerData(taker, true);
+        vm.prank(taker);
+        (uint256 amountIn,,) = router.swap(yesOrder, address(usdc), address(yes), yesUsdc, takerData);
+        assertEq(amountIn, yesUsdc, "a multi-thousand USDC forecast must fill");
+        assertGt(FORECAST_YES + FORECAST_NO, 1_000000, "sum is far above 1 USDC by design");
     }
 
     function test_quoteAndSwapConsistent() public {
         // Extruction contract must behave identically in static (quote) and swap paths
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 350000, 3);
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, FORECAST_NO, 3);
         bytes memory takerData = builder.buildTakerData(taker, true);
 
         // quote path (static context)
@@ -113,9 +135,9 @@ contract AgoraComplementTest is Test {
     }
 
     function test_bothSidesGuarded_noPairFillsCoherently() public {
-        // Full pair: YES 0.60 / NO 0.35, each side guards against the other
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 350000, 4);
-        (ISwapVM.Order memory noOrder, uint256 noUsdc) = _shipGuardedLot(no, 350000, 600000, 5);
+        // Full pair: each side guards against the other's forecast
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, FORECAST_NO, 4);
+        (ISwapVM.Order memory noOrder, uint256 noUsdc) = _shipGuardedLot(no, FORECAST_NO, FORECAST_YES, 5);
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.startPrank(taker);

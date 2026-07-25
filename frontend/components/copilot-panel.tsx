@@ -67,23 +67,27 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
               </div>
             )}
 
-            {insights.arbitrage.buyBoth && (
+            {insights.arbitrage.spread && insights.arbitrage.spread.leading !== "TIED" && (
               <div className="rounded-md border border-border bg-muted/50 p-3 text-sm">
-                <p className="font-medium">Arbitrage detected</p>
+                <p className="font-medium">Forecast spread</p>
                 <p className="text-muted-foreground">
-                  Best YES ({fmtUsdc(insights.arbitrage.buyBoth.askYes)}) + best NO (
-                  {fmtUsdc(insights.arbitrage.buyBoth.askNo)}) &lt; 1 USDC — risk-free edge of{" "}
-                  {fmtUsdc(insights.arbitrage.buyBoth.edgeUsdc6d)} USDC per basket.
+                  {fmtUsdc(insights.arbitrage.spread.askYes)} USDC per token if it passes vs{" "}
+                  {fmtUsdc(insights.arbitrage.spread.askNo)} if it does not —{" "}
+                  {insights.arbitrage.spread.leading} ahead by{" "}
+                  {fmtUsdc(insights.arbitrage.spread.gapUsdc6d)} USDC
+                  {insights.arbitrage.spread.gapBps !== null &&
+                    ` (${(insights.arbitrage.spread.gapBps / 100).toFixed(1)}%)`}
+                  .
                 </p>
               </div>
             )}
 
             {insights.arbitrage.violations.map((v) => (
               <div key={v.maker} className="rounded-md border border-border bg-muted/50 p-3 text-sm">
-                <p className="font-medium">Invariant violation</p>
+                <p className="font-medium">Divergent maker</p>
                 <p className="text-muted-foreground">
-                  {v.maker.slice(0, 10)}… quotes YES+NO {fmtUsdc(v.askYes)}+{fmtUsdc(v.askNo)}{" "}
-                  &gt; 1 USDC.
+                  {v.maker.slice(0, 10)}… quotes the two worlds {(v.gapBps / 100).toFixed(0)}% apart
+                  ({fmtUsdc(v.askYes)} vs {fmtUsdc(v.askNo)} USDC).
                 </p>
               </div>
             ))}
