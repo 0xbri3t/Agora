@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
 
@@ -40,6 +40,7 @@ export function useCopilotInsights(proposalId: string | undefined) {
   const [insights, setInsights] = useState<CopilotInsights | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const retriesRef = useRef(0)
 
   const refetch = useCallback(async () => {
     if (!proposalId) return
@@ -47,7 +48,19 @@ export function useCopilotInsights(proposalId: string | undefined) {
     setError(null)
     try {
       const res = await fetch(`${API_BASE}/copilot/${proposalId}/insights`)
+      if (res.status === 404) {
+        // The backend re-syncs proposals from chain after a restart — a 404
+        // here usually means "not indexed yet", not "gone". Retry briefly.
+        if (retriesRef.current < 5) {
+          retriesRef.current += 1
+          setError('indexing this proposal — retrying…')
+          setTimeout(() => { void refetch() }, 3000)
+          return
+        }
+        throw new Error('proposal not found')
+      }
       if (!res.ok) throw new Error(`copilot ${res.status}`)
+      retriesRef.current = 0
       setInsights(await res.json())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'copilot unavailable')
