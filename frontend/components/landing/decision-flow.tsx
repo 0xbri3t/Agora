@@ -20,7 +20,7 @@ const STATIONS = [
 const YES_SPARK = "M528,168 L548,160 L568,163 L588,150 L608,154 L628,140 L648,143 L672,132"
 const NO_SPARK = "M528,150 L548,155 L568,152 L588,160 L608,158 L628,166 L648,163 L672,172"
 
-const STAGE_MS = 1800
+const STAGE_MS = 1200
 const INK = "var(--foreground)"
 const YES = "var(--data-up)"
 const NO = "var(--destructive)"
@@ -35,7 +35,7 @@ export function DecisionFlow({ className }: { className?: string }) {
     return () => clearInterval(id)
   }, [reduced])
 
-  const spring = { type: "spring" as const, stiffness: 80, damping: 16 }
+  const spring = { type: "spring" as const, stiffness: 120, damping: 15 }
   const at = (i: number) => stage >= i
 
   return (
@@ -60,7 +60,7 @@ export function DecisionFlow({ className }: { className?: string }) {
           <motion.circle
             cy={206} r={5} fill="none" stroke={INK} strokeWidth={1.5}
             animate={{ cx: STATIONS[stage].x, r: [5, 14], opacity: [0.6, 0] }}
-            transition={{ cx: spring, r: { duration: 1.1, repeat: Infinity }, opacity: { duration: 1.1, repeat: Infinity } }}
+            transition={{ cx: spring, r: { duration: 0.9, repeat: Infinity }, opacity: { duration: 0.9, repeat: Infinity } }}
           />
         )}
 
@@ -92,11 +92,11 @@ export function DecisionFlow({ className }: { className?: string }) {
           <motion.path d={YES_SPARK} fill="none" stroke={YES} strokeWidth={2}
             initial={false}
             animate={{ pathLength: at(2) ? 1 : 0.12 }}
-            transition={reduced ? { duration: 0 } : { duration: 1.1, ease: "easeOut" }} />
+            transition={reduced ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }} />
           <motion.path d={NO_SPARK} fill="none" stroke={NO} strokeWidth={2}
             initial={false}
             animate={{ pathLength: at(2) ? 1 : 0.12 }}
-            transition={reduced ? { duration: 0 } : { duration: 1.1, ease: "easeOut" }} />
+            transition={reduced ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }} />
           <text x={684} y={135} fontSize={10} fill={YES} className="font-mono">TWAP</text>
         </g>
 
