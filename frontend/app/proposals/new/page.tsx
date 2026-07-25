@@ -90,15 +90,15 @@ export default function NewProposalPage() {
     else if (formData.description.length > MAX_DESC) next.description = `Description is too long (max ${MAX_DESC} characters).`
 
     if (!formData.auctionDuration || Number(formData.auctionDuration) <= 0 || !isUint(formData.auctionDuration)) {
-      next.auctionDuration = "Auction duration must be a positive whole number of days."
-    } else if (Number(formData.auctionDuration) > 7) {
-      next.auctionDuration = "Auction duration cannot exceed 7 days."
+      next.auctionDuration = "Auction duration must be a positive whole number of hours."
+    } else if (Number(formData.auctionDuration) > 168) {
+      next.auctionDuration = "Auction duration cannot exceed 168 hours (7 days)."
     }
 
     if (!formData.liveDuration || Number(formData.liveDuration) <= 0 || !isUint(formData.liveDuration)) {
-      next.liveDuration = "Live duration must be a positive whole number of days."
-    } else if (Number(formData.liveDuration) > 30) {
-      next.liveDuration = "Live duration cannot exceed 30 days."
+      next.liveDuration = "Live duration must be a positive whole number of hours."
+    } else if (Number(formData.liveDuration) > 720) {
+      next.liveDuration = "Live duration cannot exceed 720 hours (30 days)."
     }
 
     if (!formData.subjectToken) next.subjectToken = "Please select a token."
@@ -220,8 +220,8 @@ export default function NewProposalPage() {
       const tx = await contract.createProposal(
         formData.title,
         formData.description,
-        BigInt(formData.auctionDuration) * BigInt(86400),
-        BigInt(formData.liveDuration) * BigInt(86400),
+        BigInt(formData.auctionDuration) * BigInt(3600),
+        BigInt(formData.liveDuration) * BigInt(3600),
         formData.subjectToken,
         to18(formData.minToOpen),
         to18(formData.maxCap),
@@ -347,12 +347,12 @@ export default function NewProposalPage() {
             {/* Auction + Live durations */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="auctionDuration" className="text-base">Auction Duration (Days) *</Label>
+                <Label htmlFor="auctionDuration" className="text-base">Auction Duration (Hours) *</Label>
                 <Input
                   id="auctionDuration"
                   type="number"
                   min="1"
-                  max="7"
+                  max="168"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   step="1"
@@ -368,12 +368,12 @@ export default function NewProposalPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="liveDuration" className="text-base">Live Duration (Days) *</Label>
+                <Label htmlFor="liveDuration" className="text-base">Live Duration (Hours) *</Label>
                 <Input
                   id="liveDuration"
                   type="number"
                   min="1"
-                  max="30"
+                  max="720"
                   inputMode="numeric"
                   pattern="[0-9]*"
                   step="1"
