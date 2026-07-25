@@ -5,6 +5,7 @@ import { parseAbi } from 'viem'
 export const cca_abi = parseAbi([
   'event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount)',
   'event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded)',
+  'event ClearingPriceUpdated(uint256 blockNumber, uint256 clearingPriceQ96)',
   'event TokensClaimed(uint256 indexed bidId, address indexed owner, uint256 tokensFilled)',
   'function submitBid(uint256 maxPriceQ96, uint128 amount, address owner, bytes hookData) payable returns (uint256 bidId)',
   'function exitBid(uint256 bidId)',

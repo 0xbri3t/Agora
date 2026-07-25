@@ -3,7 +3,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot } from "recharts"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine } from "recharts"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AuctionData, UserBalance } from "@/lib/types"
 import { formatUnits } from "viem"
 import { useEffect, useMemo, useState, useCallback, use } from "react"
@@ -107,7 +108,6 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const publicClient = usePublicClient()
   // Theme-aware styling for auction chart line and axes
   const isDark = (resolvedTheme ?? "dark") === "dark"
-  const lineColor = isDark ? "#ffffff" : "#000000"
   const textColor = isDark ? "#ffffff" : "#000000"
   // Removed countdown here; will compute after fetching END_TIME
   const totalBids = auctionData.yesTotalBids + auctionData.noTotalBids
@@ -202,24 +202,100 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return Number((noRemaining * 100n) / (auctionData.noRemainingMintable + auctionData.noTotalBids))
   }, [noCap, noRemaining, auctionData.noRemainingMintable, auctionData.noTotalBids])
 
-  // Build on-chain linear function points from START->END, price goes to 0 at END_TIME
-  const chartData = useMemo(() => {
-    if (!startPrice || !startTime || !endTime || endTime <= startTime) return [] as Array<{ time: number; price: number; isCurrent: boolean }>
-    const SAMPLES = 100
-    const duration = endTime - startTime
-    const pts = Array.from({ length: SAMPLES + 1 }, (_, i) => {
-      const t = startTime + Math.round((i * duration) / SAMPLES)
-      const price = startPrice // CCA baseline: the floor; clearing rises with demand
-      return { time: t, price, isCurrent: false }
-    })
-    const now = (typeof blockTimestamp === 'number' ? blockTimestamp : Math.floor(Date.now() / 1000))
-    if (now >= startTime && now <= endTime) {
-      const priceAtNow = yesPriceNow
-      pts.push({ time: now, price: priceAtNow, isCurrent: true })
-      pts.sort((a, b) => a.time - b.time)
+  // On-chain clearing-price history (ClearingPriceUpdated logs) and live bids
+  // per auction. This is the data the reference Uniswap CCA UI charts: the
+  // clearing price only rises as demand fills the auction, so we render each
+  // update as a step, anchored at the floor when the auction starts.
+  type PricePoint = { time: number; price: number; isCurrent: boolean }
+  type BidPoint = { price: number; demand: number }
+  const [yesHistory, setYesHistory] = useState<PricePoint[]>([])
+  const [noHistory, setNoHistory] = useState<PricePoint[]>([])
+  const [yesDemand, setYesDemand] = useState<BidPoint[]>([])
+  const [noDemand, setNoDemand] = useState<BidPoint[]>([])
+
+  const fetchAuctionActivity = useCallback(async () => {
+    if (!publicClient || !yesAuctionAddr || !noAuctionAddr) return
+    const clearingEvt = cca_abi.find((e: any) => e.type === "event" && e.name === "ClearingPriceUpdated")
+    const bidEvt = cca_abi.find((e: any) => e.type === "event" && e.name === "BidSubmitted")
+    const exitEvt = cca_abi.find((e: any) => e.type === "event" && e.name === "BidExited")
+    const tsCache = new Map<bigint, number>()
+    const blockTs = async (bn: bigint) => {
+      const hit = tsCache.get(bn)
+      if (hit !== undefined) return hit
+      const b = await publicClient.getBlock({ blockNumber: bn })
+      const ts = Number(b.timestamp)
+      tsCache.set(bn, ts)
+      return ts
     }
+    const load = async (auction: `0x${string}`) => {
+      const from: bigint = await publicClient.readContract({ address: auction, abi: cca_abi, functionName: "startBlock" }) as unknown as bigint
+      const [priceLogs, bidLogs, exitLogs] = await Promise.all([
+        publicClient.getLogs({ address: auction, event: clearingEvt as any, fromBlock: from, toBlock: "latest" }),
+        publicClient.getLogs({ address: auction, event: bidEvt as any, fromBlock: from, toBlock: "latest" }),
+        publicClient.getLogs({ address: auction, event: exitEvt as any, fromBlock: from, toBlock: "latest" }),
+      ])
+      const history: PricePoint[] = []
+      for (const log of priceLogs.slice(-200)) {
+        const args: any = (log as any).args
+        history.push({
+          time: await blockTs(log.blockNumber!),
+          price: Number(q96ToPrice6d(args.clearingPriceQ96 as bigint)) / 1_000_000,
+          isCurrent: false,
+        })
+      }
+      history.sort((a, b) => a.time - b.time)
+      // Active bids -> cumulative demand at or above each max price (USDC 6d)
+      const exited = new Set(exitLogs.map((l: any) => (l.args.bidId as bigint).toString()))
+      const active = bidLogs
+        .map((l: any) => l.args)
+        .filter((a: any) => !exited.has((a.id as bigint).toString()))
+        .map((a: any) => ({ price: Number(q96ToPrice6d(a.priceQ96 as bigint)) / 1_000_000, amount: Number(a.amount as bigint) / 1_000_000 }))
+        .sort((a, b) => a.price - b.price)
+      const total = active.reduce((s, b) => s + b.amount, 0)
+      let below = 0
+      const demand: BidPoint[] = active.map((b) => {
+        const point = { price: b.price, demand: total - below }
+        below += b.amount
+        return point
+      })
+      return { history, demand }
+    }
+    try {
+      const [yes, no] = await Promise.all([load(yesAuctionAddr as `0x${string}`), load(noAuctionAddr as `0x${string}`)])
+      setYesHistory(yes.history)
+      setNoHistory(no.history)
+      setYesDemand(yes.demand)
+      setNoDemand(no.demand)
+    } catch {
+      // silent: chart falls back to floor + live point
+    }
+  }, [publicClient, yesAuctionAddr, noAuctionAddr])
+
+  useEffect(() => {
+    void fetchAuctionActivity()
+    const id = setInterval(() => { void fetchAuctionActivity() }, 15_000)
+    const onTx = () => { void fetchAuctionActivity() }
+    window.addEventListener("auction:tx", onTx)
+    return () => { clearInterval(id); window.removeEventListener("auction:tx", onTx) }
+  }, [fetchAuctionActivity])
+
+  // Step series per market: floor anchor -> logged clearing updates -> live point.
+  const now = (typeof blockTimestamp === 'number' ? blockTimestamp : Math.floor(Date.now() / 1000))
+  const buildSeries = useCallback((history: PricePoint[], priceNow: number): PricePoint[] => {
+    if (!startPrice || !startTime) return []
+    const pts: PricePoint[] = [{ time: startTime, price: startPrice, isCurrent: false }, ...history]
+    const clampedNow = endTime ? Math.min(now, endTime) : now
+    if (clampedNow > startTime) pts.push({ time: clampedNow, price: priceNow, isCurrent: true })
     return pts
-  }, [startPrice, startTime, endTime, yesPriceNow, blockTimestamp])
+  }, [startPrice, startTime, endTime, now])
+  const yesSeries = useMemo(() => buildSeries(yesHistory, yesPriceNow), [buildSeries, yesHistory, yesPriceNow])
+  const noSeries = useMemo(() => buildSeries(noHistory, noPriceNow), [buildSeries, noHistory, noPriceNow])
+
+  // Y domain: from 0 to a hair above the highest clearing seen (clearing RISES from the floor)
+  const yMax = useMemo(() => {
+    const peak = Math.max(startPrice ?? 0, yesPriceNow, noPriceNow, ...yesHistory.map(p => p.price), ...noHistory.map(p => p.price))
+    return peak > 0 ? peak * 1.15 : 1
+  }, [startPrice, yesPriceNow, noPriceNow, yesHistory, noHistory])
 
   // Manual refetch to update instantly after tx and every 10s
   const refetchNow = useCallback(async () => {
@@ -380,15 +456,49 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return `${d}${pad2(timeLeft.hours)}:${pad2(timeLeft.minutes)}:${pad2(timeLeft.seconds)}`
   }, [timeLeft])
 
+  const YES_COLOR = "var(--data-up)"
+  const NO_COLOR = "var(--destructive)"
+
+  const timeTickFormatter = (t: number) => {
+    if (!startTime || !endTime) return ""
+    const dur = endTime - startTime
+    const d = new Date(t * 1000)
+    if (dur >= 24 * 60 * 60) {
+      return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    }
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  }
+  const tooltipStyle = isDark ? {
+    backgroundColor: "rgba(0,0,0,0.75)",
+    border: "1px solid rgba(255,255,255,0.2)",
+    borderRadius: "4px",
+    color: "#ffffff",
+  } : {
+    backgroundColor: "rgba(255,255,255,0.95)",
+    border: "1px solid rgba(0,0,0,0.15)",
+    borderRadius: "4px",
+    color: "#000000",
+  }
+  const seriesDot = (color: string) => (dotProps: any) => {
+    if (dotProps.payload.isCurrent) {
+      return <AnimatedDot {...dotProps} color={color} key={`animated-${dotProps.index}`} />
+    }
+    return <Dot {...dotProps} r={0} key={`dot-${dotProps.index}`} />
+  }
+
   const ChartCard = (
     <Card className={fullHeight ? "h-full flex flex-col" : undefined}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Auction Price Evolution</CardTitle>
-            <CardDescription>Linear price decrease over time</CardDescription>
+            <CardTitle>Clearing Price</CardTitle>
+            <CardDescription>Starts at the floor, rises as bids fill each market</CardDescription>
           </div>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 text-xs">
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2" style={{ backgroundColor: YES_COLOR }} />YES</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2" style={{ backgroundColor: NO_COLOR }} />NO</span>
+            </div>
             <div className="flex items-center gap-2 text-sm">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span title={formatDateTime(effectiveEndTime)}>{countdownText}</span>
@@ -400,81 +510,121 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         </div>
       </CardHeader>
       <CardContent className={fullHeight ? "min-h-[16rem] flex-1" : undefined}>
-        <div className={fullHeight ? "h-full" : "h-80"}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={textColor} opacity={isDark ? 0.25 : 0.15} />
-                <XAxis
-                  dataKey="time"
-                  type="number"
-                  scale="linear"
-                  domain={startTime && endTime ? [startTime, endTime] : ["auto", "auto"] as any}
-                  ticks={xTicks}
-                  tickFormatter={(t: number) => {
-                    if (!startTime || !endTime) return ""
-                    const dur = endTime - startTime
-                    const d = new Date(t * 1000)
-                    // For multi-day ranges show day+time; otherwise HH:MM
-                    if (dur >= 24 * 60 * 60) {
-                      return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                    }
-                    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                  }}
-                  stroke={textColor}
-                  fontSize={12}
-                  tick={{ fill: textColor }}
-                  minTickGap={48}
-                  axisLine={{ stroke: textColor }}
-                  label={{ value: "Time", position: "insideBottom", offset: -5, fill: textColor }}
-                />
-                <YAxis
-                  stroke={textColor}
-                  fontSize={12}
-                  domain={[0, startPrice ?? 1]}
-                  tick={{ fill: textColor }}
-                  tickFormatter={(v: number) => formatPriceShort(v)}
-                  width={72}
-                  tickCount={6}
-                  label={{ value: "", angle: -90, position: "insideLeft", fill: textColor }}
-                />
-                <Tooltip
-                  contentStyle={isDark ? {
-                    backgroundColor: "rgba(0,0,0,0.75)",
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: "8px",
-                    color: "#ffffff",
-                  } : {
-                    backgroundColor: "rgba(255,255,255,0.95)",
-                    border: "1px solid rgba(0,0,0,0.15)",
-                    borderRadius: "8px",
-                    color: "#000000",
-                  }}
-                  formatter={(value: any) => [`$${formatPriceFull(Number(value))}`, "Price"]}
-                  labelFormatter={(label: any) => {
-                    const t = Number(label)
-                    if (!startTime || !endTime) return new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                    const dur = endTime - startTime
-                    const d = new Date(t * 1000)
-                    return dur >= 24 * 60 * 60
-                      ? d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                      : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                  }}
-                />
-                <Line
-                  type="linear"
-                  dataKey="price"
-                  stroke={lineColor}
-                  strokeWidth={2}
-                  dot={(dotProps: any) => {
-                    if (dotProps.payload.isCurrent) {
-                      return <AnimatedDot {...dotProps} color={lineColor} key={`animated-${dotProps.index}`} />
-                    }
-                    return <Dot {...dotProps} r={0} key={`dot-${dotProps.index}`} />
-                  }}
-                />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <Tabs defaultValue="price" className={fullHeight ? "flex h-full flex-col" : undefined}>
+          <TabsList className="mb-2 w-fit">
+            <TabsTrigger value="price">Price</TabsTrigger>
+            <TabsTrigger value="demand">Demand</TabsTrigger>
+          </TabsList>
+          <TabsContent value="price" className={fullHeight ? "flex-1" : undefined}>
+            <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={textColor} opacity={isDark ? 0.25 : 0.15} />
+                  <XAxis
+                    dataKey="time"
+                    type="number"
+                    scale="linear"
+                    domain={startTime && endTime ? [startTime, endTime] : ["auto", "auto"] as any}
+                    ticks={xTicks}
+                    tickFormatter={timeTickFormatter}
+                    stroke={textColor}
+                    fontSize={12}
+                    tick={{ fill: textColor }}
+                    minTickGap={48}
+                    axisLine={{ stroke: textColor }}
+                    allowDuplicatedCategory={false}
+                  />
+                  <YAxis
+                    stroke={textColor}
+                    fontSize={12}
+                    domain={[0, yMax]}
+                    tick={{ fill: textColor }}
+                    tickFormatter={(v: number) => formatPriceShort(v)}
+                    width={72}
+                    tickCount={6}
+                  />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(value: any, name: any) => [`$${formatPriceFull(Number(value))}`, name]}
+                    labelFormatter={(label: any) => timeTickFormatter(Number(label))}
+                  />
+                  {typeof startPrice === "number" && (
+                    <ReferenceLine
+                      y={startPrice}
+                      stroke={textColor}
+                      strokeDasharray="4 4"
+                      opacity={0.4}
+                      label={{ value: "floor", position: "insideTopLeft", fill: textColor, fontSize: 11, opacity: 0.6 }}
+                    />
+                  )}
+                  <Line
+                    data={yesSeries}
+                    name="YES"
+                    type="stepAfter"
+                    dataKey="price"
+                    stroke={YES_COLOR}
+                    strokeWidth={2}
+                    dot={seriesDot(YES_COLOR)}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    data={noSeries}
+                    name="NO"
+                    type="stepAfter"
+                    dataKey="price"
+                    stroke={NO_COLOR}
+                    strokeWidth={2}
+                    dot={seriesDot(NO_COLOR)}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </TabsContent>
+          <TabsContent value="demand" className={fullHeight ? "flex-1" : undefined}>
+            <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
+              {yesDemand.length === 0 && noDemand.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  No active bids yet — the demand curve builds as bids arrive.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={textColor} opacity={isDark ? 0.25 : 0.15} />
+                    <XAxis
+                      dataKey="price"
+                      type="number"
+                      domain={["auto", "auto"]}
+                      tickFormatter={(v: number) => `$${formatPriceShort(v)}`}
+                      stroke={textColor}
+                      fontSize={12}
+                      tick={{ fill: textColor }}
+                      axisLine={{ stroke: textColor }}
+                      label={{ value: "Max price per token", position: "insideBottom", offset: -5, fill: textColor, fontSize: 11 }}
+                    />
+                    <YAxis
+                      stroke={textColor}
+                      fontSize={12}
+                      tick={{ fill: textColor }}
+                      tickFormatter={(v: number) => `$${formatPriceShort(v)}`}
+                      width={72}
+                      label={{ value: "Demand at ≥ price", angle: -90, position: "insideLeft", fill: textColor, fontSize: 11 }}
+                    />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(value: any, name: any) => [`$${formatPriceFull(Number(value))}`, `${name} demand`]}
+                      labelFormatter={(label: any) => `at ≥ $${formatPriceFull(Number(label))}`}
+                    />
+                    {yesPriceNow > 0 && <ReferenceLine x={yesPriceNow} stroke={YES_COLOR} strokeDasharray="4 4" opacity={0.6} />}
+                    {noPriceNow > 0 && <ReferenceLine x={noPriceNow} stroke={NO_COLOR} strokeDasharray="4 4" opacity={0.6} />}
+                    <Line data={yesDemand} name="YES" type="stepAfter" dataKey="demand" stroke={YES_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    <Line data={noDemand} name="NO" type="stepAfter" dataKey="demand" stroke={NO_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   )
