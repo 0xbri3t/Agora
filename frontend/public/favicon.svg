@@ -2,13 +2,13 @@
   <rect x="127" y="317" width="533" height="533" fill="#141210"/>
   <g fill="#f0ecdf">
     <polygon points="127,388 658,346 658,382 637,382 637,415 127,415"/>
-    <rect x="148" y="445" width="97" height="27"/>
+    <rect x="148" y="445" width="100" height="27"/>
     <rect x="540" y="445" width="100" height="27"/>
-    <polygon points="167,490 228,490 235,765 160,765"/>
-    <polygon points="560,490 620,490 627,765 553,765"/>
-    <rect x="272" y="650" width="64" height="115"/>
-    <rect x="358" y="573" width="64" height="192"/>
-    <rect x="456" y="495" width="64" height="270"/>
+    <polygon points="166,490 230,490 232,765 164,765"/>
+    <polygon points="558,490 622,490 624,765 556,765"/>
+    <rect x="264" y="650" width="64" height="115"/>
+    <rect x="362" y="573" width="64" height="192"/>
+    <rect x="460" y="495" width="64" height="270"/>
     <rect x="127" y="787" width="533" height="28"/>
   </g>
 </svg>
