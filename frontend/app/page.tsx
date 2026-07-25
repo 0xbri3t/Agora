@@ -4,6 +4,7 @@ import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
 import { TickerTape } from "@/components/landing/ticker-tape"
 import { FutarchyDiagram } from "@/components/landing/futarchy-diagram"
 import { TeeSpec } from "@/components/landing/tee-spec"
+import { AsciiAgora } from "@/components/landing/ascii-agora"
 
 const BUILT_ON = ["1inch Aqua", "Ethereum Sepolia", "Pyth", "USDC"]
 
@@ -25,12 +26,27 @@ export default function HomePage() {
             </Button>
           </div>
 
-          <div className="flex items-end justify-center lg:justify-end">
-            <LiveMarketsPanel className="w-full max-w-md" />
+          <div className="hidden lg:block">
+            <AsciiAgora className="h-full min-h-[520px] w-full" />
           </div>
         </div>
 
         <TickerTape />
+      </section>
+
+      <section className="border-t border-border">
+        <div className="container mx-auto grid grid-cols-1 gap-10 px-6 py-16 md:py-24 lg:grid-cols-[1fr_minmax(0,420px)] lg:items-center lg:gap-16">
+          <div className="flex flex-col gap-4">
+            <p className="font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
+              Live conditional markets, on chain right now.
+            </p>
+            <p className="max-w-md text-muted-foreground">
+              Every proposal opens a YES and a NO market. These are trading as
+              you read this.
+            </p>
+          </div>
+          <LiveMarketsPanel className="w-full max-w-md justify-self-center lg:justify-self-end" />
+        </div>
       </section>
 
       <section className="border-t border-border">
