@@ -85,15 +85,19 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
         'event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount)',
         'event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded)',
         'function exitBid(uint256 bidId)',
+        'function startBlock() view returns (uint64)',
       ])
       let exited = 0
       for (const auctionAddr of [yesAuctionAddr as string, noAuctionAddr as string]) {
+        // Scan from the auction's first block: block 0 makes a forked node
+        // forward the query upstream, where the range is rejected.
+        const fromBlock = await new ethers.Contract(auctionAddr, iface, provider).startBlock()
         const submitted = await provider.getLogs({
-          address: auctionAddr, fromBlock: 0n,
+          address: auctionAddr, fromBlock,
           topics: [iface.getEvent('BidSubmitted')!.topicHash, null, ethers.zeroPadValue(address, 32)],
         })
         const alreadyExited = await provider.getLogs({
-          address: auctionAddr, fromBlock: 0n,
+          address: auctionAddr, fromBlock,
           topics: [iface.getEvent('BidExited')!.topicHash, null, ethers.zeroPadValue(address, 32)],
         })
         const exitedIds = new Set(alreadyExited.map((l) => String(iface.parseLog(l)!.args.bidId)))

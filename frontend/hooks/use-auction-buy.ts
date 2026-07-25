@@ -217,16 +217,22 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
   const refetch = useCallback(async () => {
     try {
       if (!publicClient || !address || !auctionAddress) return
+      // Start at the auction's own first block: 'earliest' makes a forked node
+      // forward the query upstream, where the block range is rejected.
+      const fromBlock = await publicClient.readContract({
+        address: auctionAddress, abi: cca_abi, functionName: 'startBlock',
+      }) as bigint
+
       const [submitted, claimedLogs] = await Promise.all([
         publicClient.getLogs({
           address: auctionAddress,
           event: cca_abi.find((f) => f.type === 'event' && f.name === 'BidSubmitted') as any,
-          args: { owner: address }, fromBlock: 'earliest',
+          args: { owner: address }, fromBlock,
         }),
         publicClient.getLogs({
           address: auctionAddress,
           event: cca_abi.find((f) => f.type === 'event' && f.name === 'TokensClaimed') as any,
-          args: { owner: address }, fromBlock: 'earliest',
+          args: { owner: address }, fromBlock,
         }),
       ])
       const claimed = new Set(claimedLogs.map((l: any) => String(l.args.bidId)))
