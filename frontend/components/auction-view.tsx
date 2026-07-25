@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { ComposedChart, Line, Area, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine } from "recharts"
+import { ComposedChart, Line, Area, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine, ReferenceArea } from "recharts"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AuctionData, UserBalance } from "@/lib/types"
 import { formatUnits } from "viem"
@@ -619,18 +619,20 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return <Dot {...dotProps} r={0} key={`dot-${dotProps.index}`} />
   }
 
-  // A bid drawn where it happened: radius grows with the square root of its
-  // USDC budget (area ~ money), bright while its max price still beats the
-  // side's clearing, dimmed once the market has moved past it.
-  const bidBubble = (color: string, clearingNow: number) => (props: any) => {
-    const { cx, cy, payload } = props
+  // A bid drawn as an event marker on the baseline: a small triangle at the
+  // moment it landed, colored by side. Uniform size — the budgets live in the
+  // tooltip and the Demand tab, not in the geometry.
+  const bidMarker = (color: string) => (props: any) => {
+    const { cx, cy } = props
     if (typeof cx !== "number" || typeof cy !== "number") return <g />
-    const r = Math.max(4, Math.min(13, Math.sqrt(payload.amount || 0) / 6))
-    const winning = payload.price >= clearingNow
     return (
-      <g>
-        <circle cx={cx} cy={cy} r={r} fill={color} opacity={winning ? 0.75 : 0.28} stroke="var(--card)" strokeWidth={1.5} />
-      </g>
+      <path
+        d={`M${cx},${cy - 9} L${cx + 5.5},${cy - 1} L${cx - 5.5},${cy - 1} Z`}
+        fill={color}
+        stroke="var(--card)"
+        strokeWidth={1}
+        strokeLinejoin="round"
+      />
     )
   }
 
@@ -708,16 +710,28 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    formatter={(value: any, name: any) => [`$${formatPriceFull(Number(value))}`, name]}
+                    formatter={(value: any, name: any, item: any) => {
+                      if (String(name).endsWith("bid")) {
+                        const p = item?.payload ?? {}
+                        return [`${Number(p.amount ?? 0).toLocaleString()} USDC @ max $${formatPriceFull(Number(p.price ?? 0))}`, name]
+                      }
+                      return [`$${formatPriceFull(Number(value))}`, name]
+                    }}
                     labelFormatter={(label: any) => timeTickFormatter(Number(label))}
                   />
-                  {typeof startPrice === "number" && (
-                    <ReferenceLine
-                      y={startPrice}
-                      stroke={textColor}
-                      strokeDasharray="4 4"
-                      opacity={0.4}
-                      label={{ value: "floor", position: "insideTopLeft", fill: textColor, fontSize: 11, opacity: 0.6 }}
+                  {/* Floor as a shaded no-sale zone: nothing sells below it, so
+                      the whole region is greyed out instead of a lone line that
+                      collides with series sitting at the floor. */}
+                  {typeof startPrice === "number" && startTime && endTime && (
+                    <ReferenceArea
+                      x1={startTime}
+                      x2={endTime}
+                      y1={0}
+                      y2={startPrice}
+                      fill={textColor}
+                      fillOpacity={0.06}
+                      stroke="none"
+                      label={{ value: `floor · $${formatPriceFull(startPrice)} — no sale below`, position: "insideBottom", fill: textColor, fontSize: 10, opacity: 0.55 }}
                     />
                   )}
                   <Line
@@ -740,11 +754,10 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     dot={seriesDot(NO_COLOR)}
                     isAnimationActive={false}
                   />
-                  {/* Bids as bubbles: when, at what max price, sized by budget.
-                      Bright while still competitive (max >= that side's clearing),
-                      dimmed once the clearing has passed them by. */}
-                  <Scatter data={yesBidMarks} name="YES bid" dataKey="price" shape={bidBubble(YES_COLOR, yesPriceNow)} isAnimationActive={false} />
-                  <Scatter data={noBidMarks} name="NO bid" dataKey="price" shape={bidBubble(NO_COLOR, noPriceNow)} isAnimationActive={false} />
+                  {/* Bid events: uniform triangles on the baseline at the moment
+                      each bid landed, colored by side. Hover for the details. */}
+                  <Scatter data={yesBidMarks.map((m) => ({ ...m, yBase: 0 }))} name="YES bid" dataKey="yBase" shape={bidMarker(YES_COLOR)} isAnimationActive={false} />
+                  <Scatter data={noBidMarks.map((m) => ({ ...m, yBase: 0 }))} name="NO bid" dataKey="yBase" shape={bidMarker(NO_COLOR)} isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
               </div>
