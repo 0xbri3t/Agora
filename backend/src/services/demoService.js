@@ -5,7 +5,6 @@
 // ETH and can mint MockUSDC freely.
 // Comments simple in English
 const { ethers } = require('ethers');
-const { getProvider } = require('../config/ethers');
 const aquaClient = require('./aquaClient');
 const aquaCfg = require('../config/aqua');
 
@@ -26,11 +25,14 @@ const CCA_ABI = [
   'function tickSpacing() view returns (uint256)',
   'function startBlock() view returns (uint64)',
   'function endBlock() view returns (uint64)',
+  'function claimBlock() view returns (uint64)',
   'function submitBid(uint256 maxPriceQ96, uint128 amount, address owner, bytes hookData) payable returns (uint256)',
   'function exitBid(uint256 bidId)',
+  'function exitPartiallyFilledBid(uint256 bidId, uint64 lastFullyFilledCheckpointBlock, uint64 outbidBlock)',
   'function claimTokens(uint256 bidId)',
   'event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount)',
   'event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded)',
+  'event ClearingPriceUpdated(uint256 blockNumber, uint256 clearingPriceQ96)',
 ];
 const ERC20_ABI = [
   'function approve(address, uint256) returns (bool)',
@@ -45,7 +47,40 @@ const PERMIT2_ABI = [
 ];
 const Q96 = 2n ** 96n;
 
+// The demo signs and broadcasts a LOT of transactions — use a plain HTTP
+// provider. The backend's shared provider is a WebSocket; a socket degraded
+// by hot restarts queues sendRawTransaction into the void (local tx hashes
+// that never reach the node).
+function getProvider() {
+  return new ethers.JsonRpcProvider(process.env.RPC_URL || 'http://127.0.0.1:8545', undefined, { polling: true, pollingInterval: 500 });
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A tx.wait that cannot hang the whole run: races a deadline, and on timeout
+// resets the wallet's cached nonce so the next tx re-syncs with the chain.
+async function waitTx(txPromise, wallet, ms = 20_000) {
+  const tx = await txPromise;
+  const res = await Promise.race([tx.wait(), sleep(ms).then(() => 'timeout')]);
+  if (res === 'timeout') {
+    if (typeof wallet?.reset === 'function') wallet.reset();
+    throw new Error(`tx ${tx.hash?.slice(0, 10)} not mined in ${ms / 1000}s`);
+  }
+  return res;
+}
+
+// Fork-only hygiene: stuck nonce-gapped txs from an aborted run would stall
+// every later wait forever. Anvil lets us just drop them.
+async function clearTxpool(provider) {
+  try { await provider.send('anvil_dropAllTransactions', []); } catch (_) { /* not anvil */ }
+}
+
+// Anvil remembers dropped tx hashes and silently ignores an identical
+// re-broadcast. A per-tx fee jitter makes every attempt a fresh hash.
+function feeJitter() {
+  const j = BigInt(Math.floor(Math.random() * 1_000_000));
+  return { maxPriorityFeePerGas: 1_000_000_000n + j, maxFeePerGas: 3_000_000_000n + j };
+}
 
 // ---------------------------------------------------------------------------
 // State: one run log per proposal+phase, polled by the frontend
@@ -75,13 +110,43 @@ function demoWallets(provider) {
   });
 }
 
+// NonceManager seeds itself from the 'pending' count, and anvil reports
+// nonce-gapped leftovers as pending — one stale tx and every new one is born
+// with nonce+1, queued forever. Drop the pool until pending == latest for
+// every demo wallet before a run signs anything.
+async function syncNonces(run, provider, wallets) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await clearTxpool(provider);
+    let clean = true;
+    for (const w of wallets) {
+      const addr = await w.getAddress();
+      const [pending, latest] = await Promise.all([
+        provider.getTransactionCount(addr, 'pending'),
+        provider.getTransactionCount(addr, 'latest'),
+      ]);
+      if (pending !== latest) clean = false;
+      if (typeof w.reset === 'function') w.reset();
+      // Forked anvil does NOT fund its default accounts — they carry their
+      // real (drained) Sepolia balances. Top up gas money directly.
+      const bal = await provider.getBalance(addr);
+      if (bal < 10n ** 18n) {
+        await provider.send('anvil_setBalance', [addr, '0x21E19E0C9BAB2400000']); // 10k ETH
+      }
+    }
+    if (clean) return;
+    log(run, 'stale txs in the pool — clearing and retrying nonce sync…');
+    await sleep(1000);
+  }
+  throw new Error('could not sync wallet nonces with the chain');
+}
+
 async function ensureUsdc(run, wallets, usdcAddr, minUnits) {
   for (const w of wallets) {
     const addr = await w.getAddress();
     const usdc = new ethers.Contract(usdcAddr, ERC20_ABI, w);
     const bal = await usdc.balanceOf(addr);
     if (bal < minUnits) {
-      await (await usdc.mint(addr, minUnits * 2n)).wait();
+      await waitTx(usdc.mint(addr, minUnits * 2n, feeJitter()), w);
       log(run, `funded ${addr.slice(0, 8)} with ${ethers.formatUnits(minUnits * 2n, 6)} USDC`);
     }
   }
@@ -100,6 +165,7 @@ async function runAuctionDemo(proposalAddress, proposalId) {
   try {
     const provider = getProvider();
     const wallets = demoWallets(provider);
+    await syncNonces(run, provider, wallets);
     const proposal = new ethers.Contract(proposalAddress, PROPOSAL_ABI, provider);
     const [yesAuction, noAuction, usdcAddr, state] = await Promise.all([
       proposal.yesAuction(), proposal.noAuction(), proposal.collateral(), proposal.state(),
@@ -114,13 +180,13 @@ async function runAuctionDemo(proposalAddress, proposalId) {
       const addr = await w.getAddress();
       const usdc = new ethers.Contract(usdcAddr, ERC20_ABI, w);
       if ((await usdc.allowance(addr, PERMIT2)) < 10n ** 30n) {
-        await (await usdc.approve(PERMIT2, ethers.MaxUint256)).wait();
+        await waitTx(usdc.approve(PERMIT2, ethers.MaxUint256, feeJitter()), w);
       }
       const p2 = new ethers.Contract(PERMIT2, PERMIT2_ABI, w);
       for (const auction of [yesAuction, noAuction]) {
         const [amt] = await p2.allowance(addr, usdcAddr, auction);
         if (amt < 10n ** 12n) {
-          await (await p2.approve(usdcAddr, auction, (1n << 160n) - 1n, (1n << 48n) - 1n)).wait();
+          await waitTx(p2.approve(usdcAddr, auction, (1n << 160n) - 1n, (1n << 48n) - 1n, feeJitter()), w);
         }
       }
     }
@@ -138,8 +204,8 @@ async function runAuctionDemo(proposalAddress, proposalId) {
       { w: 1, side: 'YES', usdc: 3_500, mult: 4.0, wait: 4 },
       { w: 3, side: 'YES', usdc: 5_000, mult: 5.0, wait: 3 },
       { w: 0, side: 'NO',  usdc: 1_000, mult: 2.5, wait: 3 },
-      { w: 2, side: 'NO',  usdc: 2_500, mult: 3.5, wait: 4 },
-      { w: 4, side: 'YES', usdc: 6_000, mult: 6.0, wait: 3 },
+      { w: 2, side: 'NO',  usdc: 2_500, floorMult: 550, wait: 4 },
+      { w: 4, side: 'YES', usdc: 6_000, floorMult: 550, wait: 3 },
     ];
 
     // The contract prices blocks at 12s but anvil mines every 2s, so a nominal
@@ -161,16 +227,22 @@ async function runAuctionDemo(proposalAddress, proposalId) {
       const [nowBlock, endBlock] = await Promise.all([provider.getBlockNumber(), ro.endBlock()]);
       if (BigInt(nowBlock) >= endBlock) { finish('auction ended — stopping bid script'); return; }
 
-      const [clearing, tick] = await Promise.all([ro.clearingPrice(), ro.tickSpacing()]);
-      const rawMax = (clearing * BigInt(Math.round(step.mult * 100))) / 100n;
+      const [clearing, tick, floorPx] = await Promise.all([ro.clearingPrice(), ro.tickSpacing(), ro.floorPrice()]);
+      // mult rides the live clearing (these bids end up outbid — refund
+      // material); floorMult sets an absolute whale cap high enough that
+      // demand at that price stays under supply, so the whale survives the
+      // final clearing and exits cleanly with tokens for the market phase.
+      const rawMax = step.floorMult
+        ? floorPx * BigInt(step.floorMult)
+        : (clearing * BigInt(Math.round(step.mult * 100))) / 100n;
       let maxQ96 = (rawMax / tick) * tick;
       if (maxQ96 <= clearing) maxQ96 = (clearing / tick) * tick + tick;
 
       const budget = BigInt(step.usdc) * 10n ** 6n;
       const addr = await wallets[step.w].getAddress();
-      await (await auction.submitBid(maxQ96, budget, addr, '0x')).wait();
+      await waitTx(auction.submitBid(maxQ96, budget, addr, '0x', feeJitter()), wallets[step.w]);
       const px = Number((clearing * 10n ** 18n) / Q96) / 1e6;
-      log(run, `${addr.slice(0, 8)} bid ${step.usdc} USDC on ${step.side} (max ${step.mult}x, clearing was $${px.toFixed(2)})`);
+      log(run, `${addr.slice(0, 8)} bid ${step.usdc} USDC on ${step.side} (max ${step.floorMult ? step.floorMult + 'x floor' : step.mult + 'x'}, clearing was $${px.toFixed(2)})`);
     }
     finish('auction script done — 10 bids placed across both sides');
   } catch (e) {
@@ -184,6 +256,11 @@ async function runAuctionDemo(proposalAddress, proposalId) {
 async function claimAuctionTokens(run, provider, wallets, auctionAddr, label) {
   const ro = new ethers.Contract(auctionAddr, CCA_ABI, provider);
   const fromBlock = await ro.startBlock();
+  // Only bids whose max price beat the final clearing exit cleanly with
+  // exitBid — the partially-outbid path needs checkpoint hints and has proven
+  // unreliable against the deployed CCA, so the demo leaves those bids alone
+  // (they double as material for the refund UI).
+  const finalClearing = BigInt(await ro.clearingPrice());
   for (const w of wallets) {
     const addr = await w.getAddress();
     const [submitted, exited] = await Promise.all([
@@ -193,11 +270,16 @@ async function claimAuctionTokens(run, provider, wallets, auctionAddr, label) {
     const done = new Set(exited.map((l) => ro.interface.parseLog(l).args.bidId.toString()));
     const auction = new ethers.Contract(auctionAddr, CCA_ABI, w);
     for (const l of submitted) {
-      const bidId = ro.interface.parseLog(l).args.id;
+      const parsed = ro.interface.parseLog(l).args;
+      const bidId = parsed.id;
       if (done.has(bidId.toString())) continue;
+      if (BigInt(parsed.priceQ96) <= finalClearing) {
+        log(run, `${addr.slice(0, 8)} ${label} bid #${bidId} was outbid — left for the refund flow`);
+        continue;
+      }
       try {
-        await (await auction.exitBid(bidId)).wait();
-        await (await auction.claimTokens(bidId)).wait();
+        await waitTx(auction.exitBid(bidId, feeJitter()), w);
+        await waitTx(auction.claimTokens(bidId, feeJitter()), w);
         log(run, `${addr.slice(0, 8)} claimed ${label} tokens for bid #${bidId}`);
       } catch (e) {
         log(run, `${addr.slice(0, 8)} claim ${label} #${bidId} skipped (${e.shortMessage || e.message})`);
@@ -215,6 +297,7 @@ async function runMarketDemo(proposalAddress, proposalId) {
   try {
     const provider = getProvider();
     const wallets = demoWallets(provider);
+    await syncNonces(run, provider, wallets);
     const proposal = new ethers.Contract(proposalAddress, PROPOSAL_ABI, provider);
     const [yesAuction, noAuction, yesToken, noToken, usdcAddr, state] = await Promise.all([
       proposal.yesAuction(), proposal.noAuction(), proposal.yesToken(), proposal.noToken(),
@@ -224,6 +307,13 @@ async function runMarketDemo(proposalAddress, proposalId) {
 
     const cfg = { ...aquaCfg, usdcAddress: usdcAddr };
 
+    // Claims open a couple of blocks after claimBlock — right after an
+    // auto-settle the window can still be shut, so wait it out.
+    const claimBlock = await new ethers.Contract(yesAuction, CCA_ABI, provider).claimBlock();
+    while (BigInt(await provider.getBlockNumber()) <= claimBlock + 2n) {
+      log(run, 'waiting for the claim window to open…');
+      await sleep(4000);
+    }
     log(run, 'claiming auction tokens for the demo wallets…');
     await claimAuctionTokens(run, provider, wallets, yesAuction, 'YES');
     await claimAuctionTokens(run, provider, wallets, noAuction, 'NO');
@@ -239,7 +329,7 @@ async function runMarketDemo(proposalAddress, proposalId) {
       ]) {
         const erc = new ethers.Contract(token, ERC20_ABI, w);
         if ((await erc.allowance(addr, spender)) < 10n ** 30n) {
-          await (await erc.approve(spender, ethers.MaxUint256)).wait();
+          await waitTx(erc.approve(spender, ethers.MaxUint256, feeJitter()), w);
         }
       }
     }
@@ -258,18 +348,18 @@ async function runMarketDemo(proposalAddress, proposalId) {
     // (conviction building), NO drifts down — the futarchy gap opens on the
     // charts in real time. qty in whole tokens, price as multiple of base.
     const script = [
-      { maker: 0, taker: 1, side: 'YES', qty: 2.0, px: 1.00, wait: 0 },
+      { maker: 4, taker: 1, side: 'YES', qty: 2.0, px: 1.00, wait: 0 },
       { maker: 2, taker: 3, side: 'NO',  qty: 1.5, px: 1.00, wait: 3 },
-      { maker: 1, taker: 4, side: 'YES', qty: 1.8, px: 1.05, wait: 3 },
-      { maker: 3, taker: 0, side: 'NO',  qty: 1.2, px: 0.96, wait: 4 },
+      { maker: 4, taker: 0, side: 'YES', qty: 1.8, px: 1.05, wait: 3 },
+      { maker: 2, taker: 0, side: 'NO',  qty: 1.2, px: 0.96, wait: 4 },
       { maker: 4, taker: 2, side: 'YES', qty: 2.5, px: 1.09, wait: 3 },
-      { maker: 0, taker: 3, side: 'YES', qty: 1.5, px: 1.14, wait: 4 },
+      { maker: 4, taker: 3, side: 'YES', qty: 1.5, px: 1.14, wait: 4 },
       { maker: 2, taker: 1, side: 'NO',  qty: 1.8, px: 0.91, wait: 3 },
-      { maker: 1, taker: 0, side: 'YES', qty: 2.2, px: 1.18, wait: 3 },
-      { maker: 3, taker: 4, side: 'NO',  qty: 1.0, px: 0.88, wait: 4 },
+      { maker: 4, taker: 0, side: 'YES', qty: 2.2, px: 1.18, wait: 3 },
+      { maker: 2, taker: 4, side: 'NO',  qty: 1.0, px: 0.88, wait: 4 },
       { maker: 4, taker: 1, side: 'YES', qty: 1.6, px: 1.24, wait: 3 },
       { maker: 2, taker: 0, side: 'NO',  qty: 1.4, px: 0.85, wait: 3 },
-      { maker: 0, taker: 4, side: 'YES', qty: 2.0, px: 1.30, wait: 4 },
+      { maker: 4, taker: 3, side: 'YES', qty: 2.0, px: 1.30, wait: 4 },
     ];
 
     for (const step of script) {

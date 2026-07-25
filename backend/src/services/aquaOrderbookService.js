@@ -57,6 +57,11 @@ async function processShippedEvent(evt, { provider, cfg } = {}) {
   const market = lookupMarket(lot.outcomeToken);
   if (!market) return null; // unknown market token -> ignore
 
+  // Idempotent: the polling sweep and the live subscription can both deliver
+  // the same Shipped — one order per strategyHash, ever.
+  const existing = await Order.findOne({ strategyHash });
+  if (existing) return existing;
+
   const order = await Order.create({
     proposalId: market.proposalId,
     side: market.side,
@@ -82,6 +87,7 @@ async function processSwappedEvent(evt) {
 
   const order = await Order.findOne({ strategyHash: orderHash });
   if (!order) return null;
+  if (order.status === 'filled') return order; // subscription + sweep overlap
 
   order.status = 'filled';
   order.filledAmount = amountOut.toString();
@@ -95,6 +101,20 @@ async function processSwappedEvent(evt) {
     isExecuted: true,
   });
   await order.save();
+
+  // Feed the candle chart: every Aqua fill is a real trade print.
+  try {
+    const PriceHistory = require('../models/PriceHistory');
+    await PriceHistory.create({
+      proposalId: order.proposalId,
+      side: order.side,
+      price: order.price,
+      volume: amountOut.toString(),
+      timestamp: new Date(),
+    });
+  } catch (e) {
+    console.error('PriceHistory fill write error:', e.message);
+  }
 
   await updateOrderBook(order.proposalId, order.side);
   return order;
@@ -148,6 +168,59 @@ function startAquaListener({ provider, cfg } = {}) {
     processDockedEvent({ args, transactionHash: evt.transactionHash })
       .catch((e) => console.error('aqua Docked handler error:', e.message));
   });
+
+  // Polling fallback over plain HTTP: the shared WebSocket provider can be
+  // silently degraded after hot restarts, and then subscription events never
+  // arrive. This sweep catches anything the subscriptions missed.
+  const httpUrl = process.env.RPC_URL;
+  if (httpUrl) {
+    const http = new ethers.JsonRpcProvider(httpUrl);
+    const aquaRo = new ethers.Contract(c.aquaAddress, AQUA_ABI, http);
+    const routerRo = new ethers.Contract(c.routerAddress, ROUTER_ABI, http);
+    const seen = new Set();
+    const pendingSwaps = []; // fills whose order hasn't been indexed yet
+    let fromBlock = null;
+    const sweep = async () => {
+      try {
+        const tip = await http.getBlockNumber();
+        if (fromBlock === null) fromBlock = Math.max(0, tip - 1200);
+        if (tip < fromBlock) return;
+        const range = { fromBlock, toBlock: tip };
+        const [shipped, swapped, docked] = await Promise.all([
+          aquaRo.queryFilter('Shipped', range.fromBlock, range.toBlock),
+          routerRo.queryFilter('Swapped', range.fromBlock, range.toBlock),
+          aquaRo.queryFilter('Docked', range.fromBlock, range.toBlock),
+        ]);
+        for (const l of shipped) {
+          const key = `${l.transactionHash}:${l.index}`;
+          if (seen.has(key)) continue; seen.add(key);
+          await processShippedEvent({ args: l.args, transactionHash: l.transactionHash }, { provider: http, cfg: c }).catch(() => {});
+        }
+        // Fills retry until their order exists — a Shipped can be indexed a
+        // sweep later than its Swapped, and the range cursor moves on.
+        for (const l of swapped) {
+          const key = `${l.transactionHash}:${l.index}`;
+          if (!seen.has(key)) pendingSwaps.push({ key, args: l.args, transactionHash: l.transactionHash });
+          seen.add(key);
+        }
+        for (let i = pendingSwaps.length - 1; i >= 0; i--) {
+          const p = pendingSwaps[i];
+          const matched = await processSwappedEvent({ args: p.args, transactionHash: p.transactionHash }).catch(() => null);
+          if (matched) pendingSwaps.splice(i, 1);
+        }
+        for (const l of docked) {
+          const key = `${l.transactionHash}:${l.index}`;
+          if (seen.has(key)) continue; seen.add(key);
+          await processDockedEvent({ args: l.args, transactionHash: l.transactionHash }).catch(() => {});
+        }
+        fromBlock = tip + 1;
+        if (seen.size > 5000) seen.clear();
+      } catch (_) { /* transient RPC hiccup — next sweep retries */ }
+    };
+    const timer = setInterval(sweep, 5000);
+    sweep();
+    return () => { clearInterval(timer); aqua.removeAllListeners(); router.removeAllListeners(); };
+  }
 
   return () => { aqua.removeAllListeners(); router.removeAllListeners(); };
 }
