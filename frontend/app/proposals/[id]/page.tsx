@@ -13,14 +13,15 @@ import { AuctionTradePanel } from "@/components/auction-trade-panel"
 import { MarketTradePanel } from "@/components/market-trade-panel"
 import { MarketBalancesPanel } from "@/components/market-balances-panel"
 import { MarketPriceHeader } from "@/components/market-price-header"
+import { CopilotPanel } from "@/components/copilot-panel"
 import { useChainId, useAccount } from "wagmi"
 // Removed blocking dialog imports
 // import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-// import { ConnectWalletButton } from "@/components/connect-wallet-button"
+import { ConnectWalletButton } from "@/components/wallet-button"
 import type { Proposal, UserOrder, MarketOption, UserBalance } from "@/lib/types"
 import { useGetProposalById } from "@/hooks/use-get-proposalById"
 import { useGetUserOrders } from "@/hooks/use-get-user-orders"
-import { useCancelOrder } from "@/hooks/use-cancel-order"
+import { useAquaQuote } from "@/hooks/use-aqua-quote"
 import { toast } from "sonner"
 import { useGetOrderbookOrders } from "@/hooks/use-get-orderbook-orders"
 import { AuctionResolvedOnChain } from "@/components/resolution-view"
@@ -35,7 +36,7 @@ function generateProposalData(id: string, hookProposal: any): Proposal {
   const zero = '0x0000000000000000000000000000000000000000'
   const now = Date.now()
 
-  const pyUSD = getContractAddress(296, 'PYUSD')
+  const collateral = getContractAddress(11155111, 'COLLATERAL')
 
 
   const auctionHistory = []
@@ -139,6 +140,7 @@ function mapBackendOrderToUserOrder(o: any): UserOrder {
     filled: typeof o.filledAmount === "number" ? o.filledAmount : Number(o.filledAmount ?? 0),
     status: statusMap[o.status] ?? "pending",
     timestamp: o.createdAt ? new Date(o.createdAt).getTime() : Date.now(),
+    strategyHash: o.strategyHash ?? undefined,
   }
 }
 
@@ -160,7 +162,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
   // Fetch authenticated user orders for this proposal (if user has authenticated)
   const { orders: rawUserOrders, error: userOrdersError, isLoading: userOrdersLoading, refetch: refetchUserOrders } = useGetUserOrders({ proposalId: id })
 
-  const { cancelOrder, isLoading: cancellingOrder } = useCancelOrder()
+  const { dockQuote, isLoading: cancellingOrder } = useAquaQuote()
 
   // Live public orderbook for selected market
   const { orders: liveOrderbook, refetch: refetchOrderbook } = useGetOrderbookOrders({ proposalId: id, market: selectedMarket, auto: true, pollMs: 3000 })
@@ -190,18 +192,25 @@ export default function ProposalDetailPage({ params }: PageProps) {
   }, [rawUserOrders])
 
   const handleCancelOrder = async (orderId: string) => {
-    const res = await cancelOrder(orderId)
-    if (!res) {
-      toast.error("Cancel failed")
+    // Aqua era: cancel = dock the lot on-chain from the maker's wallet
+    const order = userOrders.find((o) => o.id === orderId) as (UserOrder & { strategyHash?: string }) | undefined
+    if (!order?.strategyHash) {
+      toast.error("Cancel failed", { description: "Lot not found (no strategyHash)" })
       return
     }
-    if (res.ok) {
-      toast.success("Order cancelled")
-      setUserOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, state: "cancelled" as const } : o)))
+    const tokenAddr = (order.market === "YES" ? proposal?.yesToken : proposal?.noToken) as `0x${string}` | undefined
+    if (!tokenAddr) {
+      toast.error("Cancel failed", { description: "Market token unknown" })
+      return
+    }
+    const res = await dockQuote(order.strategyHash as `0x${string}`, tokenAddr)
+    if (res) {
+      toast.success("Lot cancelled (docked)")
+      setUserOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: "cancelled" as const } : o)))
       void refetchUserOrders()
       void refetchOrderbook()
     } else {
-      toast.error("Cancel failed", { description: res.data?.error || `state ${res.status}` })
+      toast.error("Cancel failed")
     }
   }
 
@@ -296,6 +305,9 @@ export default function ProposalDetailPage({ params }: PageProps) {
                 userBalance={(userBalance as any)}
               />
             </div>
+            <div className="lg:col-span-1">
+              <CopilotPanel proposalId={proposal.id} />
+            </div>
           </>
         ) : (
           (proposal as any).marketData && (
@@ -323,6 +335,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
                   onOrderPlaced={() => { refetchUserOrders(); refetchOrderbook(); }}
                 />
                 <MarketBalancesPanel proposalId={proposal.id} />
+                <CopilotPanel proposalId={proposal.id} />
               </div>
 
             </>

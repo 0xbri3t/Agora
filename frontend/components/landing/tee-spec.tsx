@@ -1,8 +1,8 @@
 const ROWS: Array<{ label: string; value: string }> = [
-  { label: "Matching engine", value: "TEE enclave" },
-  { label: "Order book", value: "private, TEE-isolated" },
-  { label: "Wallet consent", value: "signature required per order" },
-  { label: "Settlement", value: "on-chain, Hedera Testnet" },
+  { label: "Trading engine", value: "1inch Aqua / SwapVM" },
+  { label: "Maker custody", value: "self-custodial, funds stay in wallet" },
+  { label: "Quotes", value: "fill-or-kill lots, exact price" },
+  { label: "Settlement", value: "on-chain, Ethereum Sepolia" },
 ]
 
 export function TeeSpec() {

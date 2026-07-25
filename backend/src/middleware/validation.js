@@ -14,7 +14,9 @@ const validateProposal = (req, res, next) => {
     startTime: Joi.number().optional(),
     endTime: Joi.number().optional(),
     duration: Joi.number().optional().default(86400),
-    collateralToken: Joi.string().required(),
+    // subjectToken is the model field; collateralToken kept as legacy alias
+    subjectToken: Joi.string(),
+    collateralToken: Joi.string(),
     maxSupply: Joi.string().required(),
     target: Joi.string().required(),
     data: Joi.string().optional(),
@@ -22,35 +24,7 @@ const validateProposal = (req, res, next) => {
     proposalExecuted: Joi.boolean().optional(),
     proposalEnded: Joi.boolean().optional().default(false),
     isActive: Joi.boolean().optional()
-  });
-
-  const { error } = schema.validate(req.body);
-  if (error) {
-    return res.status(400).json({ error: error.details[0].message });
-  }
-  next();
-};
-
-const validateOrder = (req, res, next) => {
-  const schema = Joi.object({
-    // Authentication fields (required by verifyWalletSignature middleware)
-    address: Joi.string().optional(),
-    signature: Joi.string().optional(),
-    message: Joi.string().optional(),
-    timestamp: Joi.number().optional(),
-    // Order fields
-    orderType: Joi.string().valid('buy', 'sell').required(),
-    orderExecution: Joi.string().valid('limit', 'market').optional().default('limit'),
-    price: Joi.number().when('orderExecution', {
-      is: 'limit',
-      then: Joi.required(),
-      otherwise: Joi.optional()
-    }),
-    amount: Joi.number().required(),
-    userAddress: Joi.string().optional(),
-    slippage: Joi.string().optional(),
-    txHash: Joi.string().optional()
-  });
+  }).or('subjectToken', 'collateralToken');
 
   const { error } = schema.validate(req.body);
   if (error) {
@@ -60,6 +34,5 @@ const validateOrder = (req, res, next) => {
 };
 
 module.exports = {
-  validateProposal,
-  validateOrder
+  validateProposal
 };

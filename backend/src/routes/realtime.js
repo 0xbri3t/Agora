@@ -1,10 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
-const OrderBook = require('../models/OrderBook');
 const Proposal = require('../models/Proposal');
-
-const { validateOrder } = require('../middleware/validation');
 
 /**
  * @swagger

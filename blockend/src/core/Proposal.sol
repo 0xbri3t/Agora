@@ -2,13 +2,11 @@
 pragma solidity ^0.8.30;
 
 import {IProposal} from "../interfaces/IProposal.sol";
-import {IDutchAuction} from "../interfaces/IDutchAuction.sol";
+import {ICCAFactory, ICCAuction, AuctionParameters} from "../interfaces/ICCA.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {MarketToken} from "../tokens/MarketToken.sol";
 import {Treasury} from "./Treasury.sol";
-import {DutchAuction} from "./DutchAuction.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {Treasury} from "./Treasury.sol";
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -21,7 +19,6 @@ contract Proposal is Ownable, IProposal {
 
     State public state;
 
-    Trade public trade;
 
     // core identifiers / metadata
     uint256 public id;
@@ -38,11 +35,20 @@ contract Proposal is Ownable, IProposal {
     uint256 public maxCap;
 
     // auctions / tokens / implementations
-    address public pyUSD;
-    DutchAuction public yesAuction;
-    DutchAuction public noAuction;
+    address public collateral;
+    ICCAuction public yesAuction;
+    ICCAuction public noAuction;
     MarketToken public yesToken;
     MarketToken public noToken;
+
+    // Uniswap Continuous Clearing Auction factory (canonical, same address on Sepolia/mainnet)
+    address public ccaFactory;
+    uint64 public auctionEndBlock;
+    // Collateral pot per side after graduation (post protocol fee), and tokens sold per side.
+    uint256 public potYes;
+    uint256 public potNo;
+    uint256 public soldYes;
+    uint256 public soldNo;
 
     address public target;
     bytes public data;
@@ -64,7 +70,7 @@ contract Proposal is Ownable, IProposal {
     error NotAuction();
     error AlreadyInitialized();
     error InvalidAdmin();
-    error InvalidPyUSD();
+    error InvalidCollateral();
     error InvalidPythAddress();
     error InvalidMinMax(uint256 minToOpen, uint256 maxCap);
     error InvalidAuctionDuration(uint256 auctionDuration);
@@ -85,8 +91,7 @@ contract Proposal is Ownable, IProposal {
     event ProposalActivated(uint256 indexed id, uint256 liveStart, uint256 liveEnd);
     event ProposalResolved(uint256 indexed id, uint256 when);
     event ProposalCancelled(uint256 when);
-    event ProposalLive(uint256 liveEnd);
-    event BatchApplied(uint256 ops);
+    event TwapUpdated(uint256 twapYes, uint256 twapNo, uint256 at);
     event TokenClaimed(uint256 amout, address token);
 
     modifier onlyAttestor() {
@@ -109,19 +114,21 @@ contract Proposal is Ownable, IProposal {
         uint256 _auctionDuration,
         uint256 _liveDuration,
         string memory _subjectToken,
-        address _pyUSD,
+        address _collateral,
         uint256 _minToOpen,
         uint256 _maxCap,
         address _target,
         bytes memory _data,
         address _pythContract,
         bytes32 _priceFeedId,
-        address _attestor
+        address _attestor,
+        address _ccaFactory
     ) external {
         if (_initialized) revert AlreadyInitialized();
         if (_admin == address(0)) revert InvalidAdmin();
-        if (_pyUSD == address(0)) revert InvalidPyUSD();
+        if (_collateral == address(0)) revert InvalidCollateral();
         if (_pythContract == address(0)) revert InvalidPythAddress();
+        if (_ccaFactory == address(0)) revert ZeroAddress();
 
         if (_minToOpen > _maxCap) revert InvalidMinMax(_minToOpen, _maxCap);
         if (!(_auctionDuration > 0 && _auctionDuration <= 7 days)) revert InvalidAuctionDuration(_auctionDuration);
@@ -137,7 +144,7 @@ contract Proposal is Ownable, IProposal {
         auctionEndTime    = block.timestamp + _auctionDuration;
 
         subjectToken = _subjectToken;
-        pyUSD = _pyUSD;
+        collateral = _collateral;
         liveDuration = _liveDuration;
         minToOpen = _minToOpen;
         maxCap = _maxCap;
@@ -147,7 +154,7 @@ contract Proposal is Ownable, IProposal {
         priceFeedId = _priceFeedId;
         attestor = _attestor;
 
-        treasury= new Treasury(pyUSD);
+        treasury= new Treasury(collateral);
 
         // Deploy market tokens for YES and NO (temporary minter = this Proposal, updated after auctions are deployed)
         yesToken = new MarketToken(
@@ -167,34 +174,79 @@ contract Proposal is Ownable, IProposal {
 
         int64 initialPrice = getPythPriceFeed(priceFeedId);
 
-        // Deploy Dutch auctions for YES and NO (require token addresses in constructor)
-        yesAuction = new DutchAuction(
-            pyUSD,
-            address(yesToken),
-            address(treasury),
-            _auctionDuration,
-            initialPrice, // pyth: initial token price
-            minToOpen,
-            attestor
-        );
+        // Deploy one Uniswap Continuous Clearing Auction per outcome token.
+        ccaFactory = _ccaFactory;
+        uint64 durationBlocks = uint64(_auctionDuration / SECONDS_PER_BLOCK);
+        if (durationBlocks < MIN_AUCTION_BLOCKS) durationBlocks = MIN_AUCTION_BLOCKS;
+        auctionEndBlock = uint64(block.number) + durationBlocks;
 
-        noAuction = new DutchAuction(
-            pyUSD,
-            address(noToken),
-            address(treasury),
-            _auctionDuration,
-            initialPrice,   // pyth: initial token price
-            minToOpen,
-            attestor
-        );
+        bytes memory config = abi.encode(_buildAuctionParameters(uint64(uint256(int256(initialPrice))), durationBlocks));
+        yesAuction = ICCAuction(ICCAFactory(_ccaFactory).create(address(yesToken), maxCap, config, bytes32(uint256(1))));
+        noAuction = ICCAuction(ICCAFactory(_ccaFactory).create(address(noToken), maxCap, config, bytes32(uint256(2))));
 
-        // Update minters on tokens to point at the newly created auctions
-        yesToken.setMinter(address(yesAuction));
-        noToken.setMinter(address(noAuction));
+        // CCA sells a fixed pre-minted supply: mint it to each auction and notify.
+        yesToken.mint(address(yesAuction), maxCap);
+        noToken.mint(address(noAuction), maxCap);
+        yesToken.disableMinting();
+        noToken.disableMinting();
+        yesAuction.onTokensReceived();
+        noAuction.onTokensReceived();
 
-        // Set auction addresses in Treasury
-        Treasury(treasury).setAuctions(address(yesAuction), address(noAuction));
+        // Auctions never touch the Treasury pre-graduation; funds arrive via sweepCurrency in settleAuctions.
         state = State.Auction;
+    }
+
+    /// @notice Blocks are the CCA's clock (Sepolia ~12s). Durations map seconds -> blocks.
+    uint256 private constant SECONDS_PER_BLOCK = 12;
+    uint64 private constant MIN_AUCTION_BLOCKS = 10;
+    uint256 private constant Q96 = 2 ** 96;
+    uint24 private constant MPS_TOTAL = 1e7; // CCA issuance schedule must sum to this
+
+    /// @dev Builds the shared CCA config for both outcome auctions.
+    ///      Floor = a tenth of the Pyth reference price (clearing rises with demand);
+    ///      graduation = the collateral value of `minToOpen` tokens at that floor.
+    function _buildAuctionParameters(uint64 initialPrice6d, uint64 durationBlocks)
+        private
+        view
+        returns (AuctionParameters memory p)
+    {
+        // 6d collateral per 1e18 token -> Q96 collateral-wei per token-wei.
+        // Every price (floor included) must sit on a tick boundary, so pick the
+        // spacing first and snap the floor to exactly 50 ticks (2% granularity).
+        uint256 rawFloorQ96 = (uint256(initialPrice6d) * Q96) / (10 * 1e18);
+        if (rawFloorQ96 <= 2 ** 32) revert PythScaleOverflow(int256(rawFloorQ96));
+        uint256 tickSpacing = rawFloorQ96 / 50;
+        if (tickSpacing < 2) tickSpacing = 2;
+        uint256 floorPriceQ96 = tickSpacing * 50;
+
+        uint128 required = uint128((minToOpen * uint256(initialPrice6d)) / (10 * 1e18));
+        if (required == 0) required = 1;
+
+        p = AuctionParameters({
+            currency: collateral,
+            tokensRecipient: address(this),
+            // Sweeps are recipient-gated, so this contract receives and forwards
+            fundsRecipient: address(this),
+            startBlock: uint64(block.number),
+            endBlock: uint64(block.number) + durationBlocks,
+            claimBlock: uint64(block.number) + durationBlocks,
+            tickSpacing: tickSpacing,
+            validationHook: address(0),
+            floorPrice: floorPriceQ96,
+            requiredCurrencyRaised: required,
+            auctionStepsData: _buildSteps(durationBlocks)
+        });
+    }
+
+    /// @dev Even per-block issuance: q = MPS/N with the remainder spread over the
+    ///      first `r` blocks, so sum(mps * blockDelta) == MPS exactly.
+    function _buildSteps(uint64 durationBlocks) private pure returns (bytes memory) {
+        uint24 q = uint24(MPS_TOTAL / durationBlocks);
+        uint40 r = uint40(MPS_TOTAL % durationBlocks);
+        if (r == 0) {
+            return abi.encodePacked(q, uint40(durationBlocks));
+        }
+        return abi.encodePacked(q + 1, r, q, uint40(durationBlocks) - r);
     }
 
 
@@ -205,7 +257,7 @@ contract Proposal is Ownable, IProposal {
         return r;
     }
 
-    // Get the initial Pyth price feed and scale to 6 decimals (PYUSD 6d per token)
+    // Get the initial Pyth price feed and scale to 6 decimals (COLLATERAL 6d per token)
     function getPythPriceFeed(bytes32 _priceFeedId) private view returns (int64) {
         PythStructs.Price memory price = pyth.getPriceUnsafe(_priceFeedId);
         if (price.price <= 0) revert PriceNotPositive(price.price);
@@ -227,69 +279,66 @@ contract Proposal is Ownable, IProposal {
     }
 
 
-    // Settle the auctions and handles cancellation or activation
-    function settleAuctions() external onlyAuction(){
+    error AuctionNotOver(uint256 currentBlock, uint256 endBlock);
+
+    /// @notice Settle both CCA auctions once they end: activate the market when
+    ///         both graduated, cancel otherwise. Callable by anyone.
+    /// @dev Graduated: sweep raised collateral (net of Uniswap protocol fee) into
+    ///      the Treasury and pull back unsold tokens. Non-graduated: the CCAs
+    ///      refund bidders directly via exitBid, the Treasury never held funds.
+    function settleAuctions() external {
         if (state != State.Auction) revert BadState(State.Auction, state);
+        if (block.number < auctionEndBlock) revert AuctionNotOver(block.number, auctionEndBlock);
 
-        bool yesAuctionCanceled = yesAuction.isCanceled();
-        bool noAuctionCanceled  = noAuction.isCanceled();
+        // CCA checkpoints lazily on bids; force the end-block checkpoint so
+        // graduation/cleared amounts reflect the full issuance schedule.
+        yesAuction.checkpoint();
+        noAuction.checkpoint();
 
-        if (yesAuctionCanceled || noAuctionCanceled) {
-            // If either auction is canceled, cancel both markets and enable refunds in Treasury
-            state = State.Cancelled;
+        if (yesAuction.isGraduated() && noAuction.isGraduated()) {
+            IERC20 usdc = IERC20(collateral);
 
-            yesToken.finalizeAsLoser(address(treasury));
-            noToken.finalizeAsLoser(address(treasury));
+            uint256 before = usdc.balanceOf(address(this));
+            yesAuction.sweepCurrency();
+            potYes = usdc.balanceOf(address(this)) - before;
 
-            Treasury(treasury).enableRefunds();
+            before = usdc.balanceOf(address(this));
+            noAuction.sweepCurrency();
+            potNo = usdc.balanceOf(address(this)) - before;
 
-            auctionEndTime = block.timestamp;
-            emit ProposalCancelled(block.timestamp);
-            return;
-        }
+            // Forward both pots to the Treasury, which pays redemptions later.
+            usdc.safeTransfer(address(treasury), potYes + potNo);
 
-        bool yesAuctionValid = yesAuction.isValid();
-        bool noAuctionValid  = noAuction.isValid();
-        if (yesAuctionValid && noAuctionValid) {
-            // If both auctions are ready, activate proposal
+            soldYes = yesAuction.totalCleared();
+            soldNo = noAuction.totalCleared();
+
+            // Unsold supply comes back here and stays locked (minting is disabled).
+            yesAuction.sweepUnsoldTokens();
+            noAuction.sweepUnsoldTokens();
+
             state = State.Live;
             auctionEndTime = block.timestamp;
             liveStart = block.timestamp;
             liveEnd = liveStart + liveDuration;
+            emit ProposalActivated(id, liveStart, liveEnd);
+        } else {
+            state = State.Cancelled;
+            yesToken.finalizeAsLoser(address(treasury));
+            noToken.finalizeAsLoser(address(treasury));
+            auctionEndTime = block.timestamp;
+            emit ProposalCancelled(block.timestamp);
         }
-
     }
 
 
-    /// @notice Apply a batch of trades. Requires allowances set by both sides.
-    function applyBatch(Trade[] calldata ops) external onlyAttestor {
+    /// @notice Attestor pushes volume-weighted TWAP computed from on-chain Aqua fills.
+    /// @dev Trading itself settles through 1inch Aqua/SwapVM (ship/swap/dock); this
+    ///      contract only needs the resulting TWAPs to resolve the market.
+    function updateTwap(uint256 _twapYes, uint256 _twapNo) external onlyAttestor {
         if (state != State.Live) revert BadState(State.Live, state);
-        for (uint256 i = 0; i < ops.length; ++i) {
-            Trade calldata t = ops[i];
-            if (t.seller == address(0) || t.buyer == address(0)) revert ZeroAddress();
-            if (t.outcomeToken != address(yesToken) && t.outcomeToken != address(noToken)) revert InvalidOutcomeToken(t.outcomeToken);
-            if (t.tokenAmount == 0) revert InvalidAmounts();
-
-
-            // Transfer PyUSD from buyer to seller
-            IERC20(pyUSD).safeTransferFrom(t.buyer, t.seller, t.pyUsdAmount);
-
-            // Transfer outcome token from seller to buyer (must have allowance on outcome token)
-            IERC20(t.outcomeToken).safeTransferFrom(t.seller, t.buyer, t.tokenAmount);
-
-            Treasury(treasury).transferBalance(t.seller, t.buyer, t.pyUsdAmount);
-
-            // update TWAP prices
-            if (t.outcomeToken == address(yesToken)) {
-                // Update TWAP price for YES token if its different
-                twapPriceTokenYes = twapPriceTokenYes == t.twapPrice ? twapPriceTokenYes : t.twapPrice;
-            } else {
-                // Update TWAP price for NO token if its different
-                twapPriceTokenNo = twapPriceTokenNo == t.twapPrice ? twapPriceTokenNo : t.twapPrice;
-            }
-
-            emit BatchApplied(ops.length);
-        }
+        twapPriceTokenYes = _twapYes;
+        twapPriceTokenNo = _twapNo;
+        emit TwapUpdated(_twapYes, _twapNo, block.timestamp);
     }
 
 
@@ -344,13 +393,31 @@ contract Proposal is Ownable, IProposal {
     }
 
 
+    /// @notice Redeem outcome tokens for their pro-rata share of that side's
+    ///         auction proceeds held by the Treasury.
+    /// @dev Pot accounting: each claim pays pot * amount / sold and shrinks both,
+    ///      so the last claimant drains the pot exactly.
     function claimTokens(address _tokenToClaim) external{
         if (state != State.Resolved) revert BadState(State.Resolved, state);
         if (address(treasury) == address(0)) revert NoTreasury();
-        if (_tokenToClaim != address(MarketToken(yesToken)) && _tokenToClaim != address(MarketToken(noToken))) revert InvalidTokenToClaim(_tokenToClaim);
 
         uint256 amount = MarketToken(_tokenToClaim).balanceOf(msg.sender);
-        Treasury(treasury).refundTo(msg.sender, _tokenToClaim, amount);
+        if (amount == 0) revert InvalidAmounts();
+
+        uint256 payout;
+        if (_tokenToClaim == address(yesToken)) {
+            payout = (potYes * amount) / soldYes;
+            potYes -= payout;
+            soldYes -= amount;
+        } else if (_tokenToClaim == address(noToken)) {
+            payout = (potNo * amount) / soldNo;
+            potNo -= payout;
+            soldNo -= amount;
+        } else {
+            revert InvalidTokenToClaim(_tokenToClaim);
+        }
+
+        Treasury(treasury).payout(msg.sender, _tokenToClaim, amount, payout);
         emit TokenClaimed(amount, _tokenToClaim);
     }
 

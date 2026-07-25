@@ -8,7 +8,7 @@ interface ITreasury {
     function refundTo(address _user, address _token, uint256 _amount) external;
 
     // --- Views ---
-    function pyUSD() external view returns (address);
+    function collateral() external view returns (address);
     function yesAuction() external view returns (address);
     function noAuction() external view returns (address);
     function potYes() external view returns (uint256);

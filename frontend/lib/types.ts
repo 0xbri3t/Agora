@@ -24,7 +24,7 @@ export interface Proposal {
 
   // Token / treasury / auctions
   subjectToken: string;
-  // pyUSD: `0x${string}`;
+  // collateral: `0x${string}`;
   minToOpen: string; // uint256 kept as string to avoid precision loss in JS
   maxCap: string;    // uint256 kept as string
   yesAuction: `0x${string}`;
@@ -102,6 +102,8 @@ export interface UserOrder {
   filled: number
   status: OrderStatus
   timestamp: number
+  /** Aqua lot id — needed to cancel (dock) on-chain */
+  strategyHash?: string
 }
 
 export interface UserBalance {

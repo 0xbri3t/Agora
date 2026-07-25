@@ -5,9 +5,9 @@ import { Github, Linkedin } from "lucide-react"
 import { site, type Author } from "@/lib/site"
 import deployedAddresses from "@/contracts/deployed-addresses.json"
 
-const HEDERA_TESTNET_CHAIN_ID = "296"
+const SEPOLIA_CHAIN_ID = "11155111"
 const proposalManagerAddress =
-  (deployedAddresses as Record<string, Record<string, string>>)[HEDERA_TESTNET_CHAIN_ID]?.PROPOSAL_MANAGER
+  (deployedAddresses as Record<string, Record<string, string>>)[SEPOLIA_CHAIN_ID]?.PROPOSAL_MANAGER
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`
@@ -83,9 +83,9 @@ export function SiteFooter() {
         <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} Agora</span>
         {proposalManagerAddress && (
           <span className="font-mono text-xs text-muted-foreground">
-            Hedera Testnet ·{" "}
+            Ethereum Sepolia ·{" "}
             <Link
-              href={`https://hashscan.io/testnet/address/${proposalManagerAddress}`}
+              href={`https://sepolia.etherscan.io/address/${proposalManagerAddress}`}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-foreground transition-colors"

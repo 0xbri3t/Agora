@@ -2,21 +2,12 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {DutchAuction} from "../core/DutchAuction.sol";
+import {ICCAuction} from "./ICCA.sol";
 import {MarketToken} from "../tokens/MarketToken.sol";
 import {Treasury} from "../core/Treasury.sol";
 
 interface IProposal {
     enum State { Auction, Live, Resolved, Cancelled }
-
-    struct Trade {
-        address seller;
-        address buyer;
-        address outcomeToken;    // address of outcome token being traded (tYes or tNo)
-        uint256 tokenAmount;     // amount of outcome tokens to be traded
-        uint256 pyUsdAmount;     // total cost in PyUSD for the amount of outcome tokens 
-        uint256 twapPrice;       // time-weighted average price of the outcome token
-    }
 
     function initialize(
         uint256 _id,
@@ -26,18 +17,19 @@ interface IProposal {
         uint256 _auctionDuration,
         uint256 _liveDuration,
         string memory _subjectToken,
-        address _pyUSD,
+        address _collateral,
         uint256 _minToOpen,
         uint256 _maxCap,
         address _target,
         bytes memory _data,
         address _pythContract,
         bytes32 _priceFeedId,
-        address _attestor
+        address _attestor,
+        address _ccaFactory
     ) external;
 
     function settleAuctions() external;
-    function applyBatch(Trade[] calldata) external;
+    function updateTwap(uint256 _twapYes, uint256 _twapNo) external;
 
     // -------- Views --------
     function state() external view returns (State);
@@ -51,11 +43,11 @@ interface IProposal {
     function liveEnd() external view returns (uint256);
     function liveDuration() external view returns (uint256);
     function subjectToken() external view returns (string memory);
-    function pyUSD() external view returns (address);
+    function collateral() external view returns (address);
     function minToOpen() external view returns (uint256);
     function maxCap() external view returns (uint256);
-    function yesAuction() external view returns (DutchAuction);
-    function noAuction() external view returns (DutchAuction);
+    function yesAuction() external view returns (ICCAuction);
+    function noAuction() external view returns (ICCAuction);
     function yesToken() external view returns (MarketToken);
     function noToken() external view returns (MarketToken);
     function target() external view returns (address);

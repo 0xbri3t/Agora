@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useAccount, useSignMessage } from 'wagmi'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { WalletButton } from '@/components/wallet-button'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -870,7 +870,7 @@ export default function WalletTestPage() {
                 <Badge variant="destructive">Not Connected</Badge>
               )}
             </div>
-            <ConnectButton />
+            <WalletButton />
           </div>
         </CardContent>
       </Card>

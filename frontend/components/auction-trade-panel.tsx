@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/stateful-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useAccount } from "wagmi"
+import { useAccount, useConfig } from "wagmi"
 import { toast } from "sonner"
 import type { MarketOption, AuctionData } from "@/lib/types"
 import { useAuctionBuy } from "@/hooks/use-auction-buy"
@@ -15,9 +15,10 @@ import { cn } from "@/lib/utils"
 import { useRef } from "react"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
-import { dutchAuction_abi } from "@/contracts/dutchAuction-abi"
+import { cca_abi } from "@/contracts/cca-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { treasury_abi } from "@/contracts/treasury-abi"
+import { getEthersSigner } from "@/lib/signer"
 
 interface AuctionTradePanelProps {
   auctionData: AuctionData
@@ -28,25 +29,26 @@ interface AuctionTradePanelProps {
 
 export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, fullHeight = false }: AuctionTradePanelProps) {
   const { isConnected, address } = useAccount()
+  const config = useConfig()
   const [selectedMarket, setSelectedMarket] = useState<MarketOption>("YES")
-  const { amount, setAmount, approveAndBuy, isApproving, isBuying, error, remaining, userTokenBalance, onchainPrice, pyusdBalance } =
+  const { amount, setAmount, approveAndBuy, isApproving, isBuying, error, remaining, userTokenBalance, onchainPrice, collateralBalance } =
     useAuctionBuy({ proposalAddress, side: selectedMarket })
   const amountInputRef = useRef<HTMLInputElement | null>(null)
   const [amountError, setAmountError] = useState<string | null>(null)
   const [isClaiming, setIsClaiming] = useState(false)
 
-  // Oracle price is scaled to 6 decimals (PyUSD, 6d)
+  // Oracle price is scaled to 6 decimals (USDC, 6d)
   const currentPrice = useMemo(() => {
     if (onchainPrice && onchainPrice > 0n) return Number(onchainPrice) / 1_000_000
     return selectedMarket === "YES" ? auctionData.yesCurrentPrice : auctionData.noCurrentPrice
   }, [onchainPrice, selectedMarket, auctionData])
   const estimatedTokens = amount ? (Number.parseFloat(amount) / currentPrice).toFixed(2) : "0.00"
 
-  // Guard: entered PyUSD amount (6d) must not exceed user's PyUSD balance
+  // Guard: entered USDC amount (6d) must not exceed user's USDC balance
   const amount6d = useMemo(() => {
     try { return parseUnits(amount || "0", 6) } catch { return 0n }
   }, [amount])
-  const insufficientBalance = amount6d > (pyusdBalance ?? 0n)
+  const insufficientBalance = amount6d > (collateralBalance ?? 0n)
   const invalidAmount = amount6d <= 0n
 
   const isDisabled = !isConnected || !amount || invalidAmount || isApproving || isBuying || !proposalAddress || insufficientBalance
@@ -54,7 +56,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
     if (isDisabled) return false
     try {
       await approveAndBuy()
-      toast.success("Liquidity added!", { description: `${amount} PyUSD for ${estimatedTokens} ${selectedMarket} tokens` })
+      toast.success("Liquidity added!", { description: `${amount} USDC for ${estimatedTokens} ${selectedMarket} tokens` })
       setAmount("")
       return true
     } catch (e: any) {
@@ -68,81 +70,57 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
     if (!address) { toast.error("No account"); return false }
     setIsClaiming(true)
     try {
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum) { toast.error("No wallet found"); return false }
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
+      const signer = await getEthersSigner(config)
+      const provider = signer.provider
 
-      // Read addresses from Proposal
       const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
-      const [yesAuctionAddr, noAuctionAddr, yesTokenAddr, noTokenAddr, treasuryAddr] = await Promise.all([
+      const [yesAuctionAddr, noAuctionAddr] = await Promise.all([
         proposal.yesAuction(),
         proposal.noAuction(),
-        proposal.yesToken(),
-        proposal.noToken(),
-        proposal.treasury(),
       ])
+      if (!yesAuctionAddr || !noAuctionAddr) { toast.error("Proposal not ready"); return false }
 
-      if (!yesAuctionAddr || !noAuctionAddr || !yesTokenAddr || !noTokenAddr || !treasuryAddr) {
-        toast.error("Proposal not ready")
-        return false
-      }
-
-      // Preflight: refunds must be enabled
-      const treasury = new ethers.Contract(treasuryAddr as string, treasury_abi as any, signer)
-      const enabled: boolean = await treasury.refundsEnabled().catch(() => false)
-      if (!enabled) {
-        toast.error("Refunds not enabled yet")
-        return false
-      }
-
-      const me = address as string
-      const steps: Array<{ token: string; auction: string; label: string }> = [
-        { token: noTokenAddr as string, auction: noAuctionAddr as string, label: "NO" },
-        { token: yesTokenAddr as string, auction: yesAuctionAddr as string, label: "YES" },
-      ]
-
-      let didAnything = false
-
-      for (const { token, auction, label } of steps) {
-        if (!token || token === ethers.ZeroAddress) continue
-        const erc20 = new ethers.Contract(token, marketToken_abi as any, signer)
-        const bal: bigint = await erc20.balanceOf(me)
-        if (!bal || bal === 0n) continue
-
-        // Ensure allowance to Treasury for token refunds
-        const cur: bigint = await erc20.allowance(me, treasuryAddr)
-        if (cur < bal) {
-          const txA = await erc20.approve(treasuryAddr, bal)
-          await txA.wait(1)
-        }
-
-        const auc = new ethers.Contract(auction, dutchAuction_abi as any, signer)
-        try {
-          const txR = await auc.refundTokens()
-          await txR.wait(1)
-          didAnything = true
-          toast.success(`Refunded t${label}`, { description: `Returned ${(Number(bal) / 1e18).toFixed(6)} t${label}` })
-          // Important: refund transfers full PYUSD balance. Stop after first success to avoid double-payout.
-          break
-        } catch (e: any) {
-          // If it failed, re-check refunds flag to give a clearer message
-          const stillEnabled: boolean = await treasury.refundsEnabled().catch(() => false)
-          if (!stillEnabled) {
-            toast.error("Refunds not enabled yet")
-          } else {
-            const msg = e?.shortMessage || e?.message || "Refund failed"
-            toast.error("Refund failed", { description: msg })
+      // A non-graduated CCA refunds bidders directly: exit every bid we own.
+      const iface = new ethers.Interface([
+        'event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount)',
+        'event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded)',
+        'function exitBid(uint256 bidId)',
+        'function startBlock() view returns (uint64)',
+      ])
+      let exited = 0
+      for (const auctionAddr of [yesAuctionAddr as string, noAuctionAddr as string]) {
+        // Scan from the auction's first block: block 0 makes a forked node
+        // forward the query upstream, where the range is rejected.
+        const fromBlock = await new ethers.Contract(auctionAddr, iface, provider).startBlock()
+        const submitted = await provider.getLogs({
+          address: auctionAddr, fromBlock,
+          topics: [iface.getEvent('BidSubmitted')!.topicHash, null, ethers.zeroPadValue(address, 32)],
+        })
+        const alreadyExited = await provider.getLogs({
+          address: auctionAddr, fromBlock,
+          topics: [iface.getEvent('BidExited')!.topicHash, null, ethers.zeroPadValue(address, 32)],
+        })
+        const exitedIds = new Set(alreadyExited.map((l) => String(iface.parseLog(l)!.args.bidId)))
+        const auction = new ethers.Contract(auctionAddr, iface, signer)
+        for (const log of submitted) {
+          const bidId = iface.parseLog(log)!.args.id as bigint
+          if (exitedIds.has(String(bidId))) continue
+          try {
+            const tx = await auction.exitBid(bidId)
+            await tx.wait(1)
+            exited++
+          } catch (e: any) {
+            toast.error("Exit failed", { description: e?.shortMessage || e?.message })
+            return false
           }
-          return false
         }
       }
 
-      if (!didAnything) {
-        toast.error("No tokens to refund")
+      if (exited === 0) {
+        toast.error("No bids to refund")
         return false
       }
-
+      toast.success(`Refunded ${exited} bid${exited > 1 ? 's' : ''}`)
       try { window.dispatchEvent(new Event('auction:tx')) } catch {}
       return true
     } catch (e: any) {
@@ -155,7 +133,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
   }
 
   // On-chain reads for failed auction balances
-  const [balances, setBalances] = useState<{ tYES: string; tNO: string; treasuryPYUSD: string; pyusdWallet: string } | null>(null)
+  const [balances, setBalances] = useState<{ tYES: string; tNO: string; treasuryCollateral: string; collateralWallet: string } | null>(null)
   useEffect(() => {
     if (!isFailed || !isConnected || !address || !proposalAddress) return
 
@@ -163,23 +141,20 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
 
     const fetchBalances = async () => {
       try {
-        const anyWindow = window as any
-        if (!anyWindow?.ethereum) return
-        const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-        const signer = await provider.getSigner()
+        const signer = await getEthersSigner(config)
         const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
-        const [yesTokenAddr, noTokenAddr, treasuryAddr, pyusdAddr] = await Promise.all([
+        const [yesTokenAddr, noTokenAddr, treasuryAddr, collateralAddr] = await Promise.all([
           proposal.yesToken(),
           proposal.noToken(),
           proposal.treasury(),
-          proposal.pyUSD(),
+          proposal.collateral(),
         ])
-        if (!yesTokenAddr || !noTokenAddr || !treasuryAddr || !pyusdAddr) return
+        if (!yesTokenAddr || !noTokenAddr || !treasuryAddr || !collateralAddr) return
         const yesToken = new ethers.Contract(yesTokenAddr, marketToken_abi as any, signer)
         const noToken = new ethers.Contract(noTokenAddr, marketToken_abi as any, signer)
         const treasury = new ethers.Contract(treasuryAddr, treasury_abi as any, signer)
-        const pyusd = new ethers.Contract(pyusdAddr, marketToken_abi as any, signer)
-        const [tYESRaw, tNORaw, yesSupplyRaw, noSupplyRaw, potYesRaw, potNoRaw, decimals, pyusdWalletRaw] = await Promise.all([
+        const collateral = new ethers.Contract(collateralAddr, marketToken_abi as any, signer)
+        const [tYESRaw, tNORaw, yesSupplyRaw, noSupplyRaw, potYesRaw, potNoRaw, decimals, collateralWalletRaw] = await Promise.all([
           yesToken.balanceOf(address),
           noToken.balanceOf(address),
           yesToken.totalSupply(),
@@ -187,16 +162,16 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
           treasury.potYes(),
           treasury.potNo(),
           yesToken.decimals(),
-          pyusd.balanceOf(address),
+          collateral.balanceOf(address),
         ])
         const tYES = ethers.formatUnits(tYESRaw, decimals)
         const tNO = ethers.formatUnits(tNORaw, decimals)
-        // Treasury PYUSD share: proportional from both pots
+        // Treasury USDC share: proportional from both pots
         const shareYES = yesSupplyRaw > 0n ? (tYESRaw * potYesRaw) / yesSupplyRaw : 0n
         const shareNO = noSupplyRaw > 0n ? (tNORaw * potNoRaw) / noSupplyRaw : 0n
-        const treasuryPYUSD = ethers.formatUnits((BigInt(shareYES) + BigInt(shareNO)), 6)
-        const pyusdWallet = ethers.formatUnits(pyusdWalletRaw, 6)
-        if (!cancelled) setBalances({ tYES, tNO, treasuryPYUSD, pyusdWallet })
+        const treasuryCollateral = ethers.formatUnits((BigInt(shareYES) + BigInt(shareNO)), 6)
+        const collateralWallet = ethers.formatUnits(collateralWalletRaw, 6)
+        if (!cancelled) setBalances({ tYES, tNO, treasuryCollateral, collateralWallet })
       } catch {
         if (!cancelled) setBalances(null)
       }
@@ -228,7 +203,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
             <>
               <div className="mb-2">
                 <span className="text-sm font-semibold text-muted-foreground">
-                  Your PYUSD balance: {Number(balances.pyusdWallet).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                  Your USDC balance: {Number(balances.collateralWallet).toLocaleString(undefined, { maximumFractionDigits: 6 })}
                 </span>
               </div>
               <div className="mb-4 flex flex-wrap gap-3 justify-between">
@@ -241,8 +216,8 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
                   <p className="text-lg font-semibold">{Number(balances.tNO).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
                 </div>
                 <div className="rounded-md border bg-muted/30 p-3 min-w-[140px]">
-                  <p className="text-xs text-muted-foreground">Your PYUSD in Treasury</p>
-                  <p className="text-lg font-semibold">{Number(balances.treasuryPYUSD).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
+                  <p className="text-xs text-muted-foreground">Your USDC in Treasury</p>
+                  <p className="text-lg font-semibold">{Number(balances.treasuryCollateral).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
                 </div>
               </div>
             </>
@@ -261,7 +236,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
             onClick={handleClaim}
             aria-disabled={!isConnected || isClaiming || balances?.tYES === "0.0" && balances?.tNO === "0.0"}
           >
-            {isClaiming ? "Claiming..." : "Claim PYUSD Collateral"}
+            {isClaiming ? "Claiming..." : "Claim USDC Collateral"}
           </Button>
         </CardContent>
       </Card>
@@ -300,16 +275,16 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
           </div>
 
           <div>
-            <CardTitle className="text-lg">Buy Liquidity</CardTitle>
-            <CardDescription>Buy {selectedMarket} tokens at current auction price</CardDescription>
+            <CardTitle className="text-lg">Place Bid</CardTitle>
+            <CardDescription>Bid a USDC budget for {selectedMarket} tokens; the auction clears everyone at one price</CardDescription>
           </div>
         </CardHeader>
 
   <CardContent className={cn("space-y-4", fullHeight && "flex-1 flex flex-col")}> 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="amount">Amount (PyUSD)</Label>
-              <span className="text-xs text-muted-foreground">Balance: {(Number(pyusdBalance) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 6 })} PyUSD</span>
+              <Label htmlFor="amount">Amount (USDC)</Label>
+              <span className="text-xs text-muted-foreground">Balance: {(Number(collateralBalance) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDC</span>
             </div>
             <div className="relative">
               <Input
@@ -327,7 +302,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
               )}
               <button
                 type="button"
-                onClick={() => setAmount(formatUnits(pyusdBalance as bigint, 6))}
+                onClick={() => setAmount(formatUnits(collateralBalance as bigint, 6))}
                 className="absolute inset-y-0 right-2 my-auto px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
                 disabled={!isConnected || isApproving || isBuying}
               >
@@ -338,7 +313,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
 
           <div className="rounded-lg border bg-muted/50 p-4 space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Current Price (PyUSD, 6d):</span>
+              <span className="text-muted-foreground">Current Price (USDC, 6d):</span>
               <span className="font-mono">${currentPrice.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
@@ -356,7 +331,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
           </div>
 
           {insufficientBalance && (
-            <div className="text-xs text-destructive">Insufficient PyUSD balance for this amount.</div>
+            <div className="text-xs text-destructive">Insufficient USDC balance for this amount.</div>
           )}
 
           {(() => {
@@ -383,7 +358,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
                     : cn(variantEnabled, selectedMarket === "YES" ? "hover:ring-green-500" : "hover:ring-red-500"),
                 )}
               >
-                {isApproving ? "Approving..." : isBuying ? "Buying..." : "Buy Liquidity"}
+                {isApproving ? "Approving..." : isBuying ? "Bidding..." : "Place Bid"}
               </Button>
             )
           })()}

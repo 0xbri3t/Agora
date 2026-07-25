@@ -1,103 +1,72 @@
 #!/bin/bash
+# Aqua-era local deploy: the local anvil is a FORK of Sepolia, so the 1inch Aqua
+# stack (aqua core, router, builder) and the MockUSDC collateral already exist.
+# This script deploys the Agora governance stack on top, mints collateral to
+# the dev accounts, and syncs addresses to frontend + backend.
 
-# Deploy contracts and mint PYUSD, then update frontend addresses
-echo "Deploying contracts..."
+set -euo pipefail
 
-# Run the deployment
-DEPLOY_OUTPUT=$(forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast 2>&1)
+RPC=http://localhost:8545
+ANVIL0_PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+ANVIL0=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+ANVIL1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+COLLATERAL=0x34ad23A27Ae8A562928234D4415eD7225a44bB2E   # MockUSDC (Sepolia, present in fork)
+PYTH=0xDd24F84d36BF92C65F92307595335bdFab5Bbd21          # Pyth (Sepolia, present in fork)
+ETH_USD_FEED=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace
 
-# Check if deployment was successful
-if [ $? -eq 0 ]; then
-    echo "Deployment successful!"
-    
-    # Extract addresses from the deployment output
-    PROPOSAL_MANAGER=$(echo "$DEPLOY_OUTPUT" | grep "ProposalManager:" | awk '{print $2}')
-    PYUSD_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep "PYUSD:" | awk '{print $2}')
-    OWNER_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep "Owner:" | awk '{print $2}')
-
-    echo "Now minting PYUSD..."
-
-    # Defaults for minting
-    TO_ADDRESS=${TO_ADDRESS:-$OWNER_ADDRESS}
-    # Amount uses 6 decimals. Example: 1,000,000 PYUSD => 1_000_000 * 10^6 = 1000000000000
-    AMOUNT_WEI=${AMOUNT_WEI:-100000000000000}
-
-    if [ -z "$PYUSD_ADDRESS" ]; then
-        echo "Error: Could not extract PYUSD address from deployment output."
-        exit 1
-    fi
-
-    if [ -z "$TO_ADDRESS" ]; then
-        # Fallback to default Anvil first account if not found in logs
-        TO_ADDRESS=0xF39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-    fi
-
-    # Run the PYUSD minting script
-    PYUSD_MINT_OUTPUT=$(TO=$TO_ADDRESS AMOUNT=$AMOUNT_WEI PYUSD_CONTRACT=$PYUSD_ADDRESS forge script script/Mintpyusd.sol --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast 2>&1)
-
-    # Check if PYUSD minting was successful
-    if [ $? -eq 0 ]; then
-        echo "PYUSD minting successful!"
-        
-        # Extract PYUSD address and balance from the minting output
-        PYUSD_CONTRACT=$(echo "$PYUSD_MINT_OUTPUT" | grep "PYUSD Contract:" | awk '{print $3}')
-        PYUSD_BALANCE=$(echo "$PYUSD_MINT_OUTPUT" | grep "User PYUSD Balance:" | tail -1 | awk '{print $4}')
-        
-        # Create/Update the JSON file used by frontend
-        cat > ../frontend/contracts/deployed-addresses.json << EOF
-{
-  "31337": {
-    "PYUSD": "${PYUSD_CONTRACT:-$PYUSD_ADDRESS}",
-    "PROPOSAL_MANAGER": "$PROPOSAL_MANAGER"
-  }
+echo "Deploying Agora stack to local Sepolia fork..."
+DEPLOY_OUTPUT=$(DEPLOYER_PK=$ANVIL0_PK forge script script/DeployAgoraSepolia.s.sol --rpc-url $RPC --broadcast 2>&1) || {
+  echo "Deployment failed!"; echo "$DEPLOY_OUTPUT"; exit 1
 }
-EOF
 
-        # Update backend .env with ProposalManager address
-        ENV_FILE="../backend/.env"
-        if [ -z "$PROPOSAL_MANAGER" ]; then
-            echo "Warning: Could not extract ProposalManager address from deploy output; skipping .env update."
-        else
-            if [ -f "$ENV_FILE" ]; then
-                if grep -q '^PROPOSAL_MANAGER_ADDRESS=' "$ENV_FILE"; then
-                    sed -i -E "s|^PROPOSAL_MANAGER_ADDRESS=.*|PROPOSAL_MANAGER_ADDRESS=$PROPOSAL_MANAGER|" "$ENV_FILE"
-                else
-                    echo "" >> "$ENV_FILE"
-                    echo "PROPOSAL_MANAGER_ADDRESS=$PROPOSAL_MANAGER" >> "$ENV_FILE"
-                fi
-                echo "Updated backend .env with PROPOSAL_MANAGER_ADDRESS: $PROPOSAL_MANAGER"
-            else
-                echo "Warning: $ENV_FILE not found; skipping .env update."
-            fi
-        fi
-        
-        echo "Updated frontend/contracts/deployed-addresses.json with new addresses:"
-        echo "PYUSD: ${PYUSD_CONTRACT:-$PYUSD_ADDRESS}"
-        echo "ProposalManager: $PROPOSAL_MANAGER"
-        echo "Recipient: $TO_ADDRESS"
-        echo "User PYUSD Balance: $PYUSD_BALANCE PYUSD (6 decimals)"
+PROPOSAL_MANAGER=$(echo "$DEPLOY_OUTPUT" | grep "proposalManager:" | awk '{print $2}')
+echo "ProposalManager: $PROPOSAL_MANAGER"
 
-        # Mint PYUSD to second Anvil account
-        SECOND_ANVIL=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
-        echo "Minting PYUSD to second Anvil account: $SECOND_ANVIL ..."
-        PYUSD_MINT_OUTPUT_2=$(TO=$SECOND_ANVIL AMOUNT=$AMOUNT_WEI PYUSD_CONTRACT=$PYUSD_ADDRESS forge script script/Mintpyusd.sol --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast 2>&1)
-        if [ $? -eq 0 ]; then
-            PYUSD_BALANCE_2=$(echo "$PYUSD_MINT_OUTPUT_2" | grep "User PYUSD Balance:" | tail -1 | awk '{print $4}')
-            echo "Second account PYUSD mint successful!"
-            echo "User PYUSD Balance (second account): $PYUSD_BALANCE_2 PYUSD (6 decimals)"
-        else
-            echo "PYUSD minting to second account failed!"
-            echo "$PYUSD_MINT_OUTPUT_2"
-        fi
+echo "Minting collateral (MockUSDC) to dev accounts..."
+cast send $COLLATERAL "mint(address,uint256)" $ANVIL0 100000000000 --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null
+cast send $COLLATERAL "mint(address,uint256)" $ANVIL1 100000000000 --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null
 
+# Seed a demo proposal so the UI has something to show right away.
+# The CCA counts BLOCKS: 6h/12s = 1800 blocks, which at the dev block time is
+# an hour of wall clock — long enough to click through the auction by hand.
+# Use `./dev.sh skip auction 1` to jump to the end whenever you want.
+echo "Creating demo proposal..."
+cast send $PROPOSAL_MANAGER \
+  "createProposal(string,string,uint256,uint256,string,uint256,uint256,address,bytes,address,bytes32)" \
+  "Adopt Aqua trading for Agora?" "Futarchy decides via YES/NO markets" \
+  21600 3600 "ETH" 1000000000000000000 100000000000000000000 \
+  0x0000000000000000000000000000000000000000 0x \
+  $PYTH $ETH_USD_FEED \
+  --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null \
+  && echo "Demo proposal created (id 1)" \
+  || echo "Warning: demo proposal creation failed"
+
+# Frontend addresses (merge: keep other chains' entries)
+PM_FINAL=$PROPOSAL_MANAGER COLLATERAL_FINAL=$COLLATERAL node -e '
+  const fs = require("fs");
+  const file = "../frontend/contracts/deployed-addresses.json";
+  let json = {};
+  try { json = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) {}
+  json["31337"] = { COLLATERAL: process.env.COLLATERAL_FINAL, PROPOSAL_MANAGER: process.env.PM_FINAL };
+  fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+'
+echo "Updated frontend/contracts/deployed-addresses.json (31337)"
+
+# Backend .env
+ENV_FILE="../backend/.env"
+if [ -f "$ENV_FILE" ]; then
+  if sed --version >/dev/null 2>&1; then SED_I=(sed -i -E); else SED_I=(sed -i '' -E); fi
+  for kv in "PROPOSAL_MANAGER_ADDRESS=$PROPOSAL_MANAGER" "COLLATERAL_ADDRESS=$COLLATERAL"; do
+    key="${kv%%=*}"
+    if grep -q "^$key=" "$ENV_FILE"; then
+      "${SED_I[@]}" "s|^$key=.*|$kv|" "$ENV_FILE"
     else
-        echo "PYUSD minting failed!"
-        echo "$PYUSD_MINT_OUTPUT"
-        exit 1
+      echo "$kv" >> "$ENV_FILE"
     fi
-
+  done
+  echo "Updated backend .env: PROPOSAL_MANAGER_ADDRESS, COLLATERAL_ADDRESS"
 else
-    echo "Deployment failed!"
-    echo "$DEPLOY_OUTPUT"
-    exit 1
+  echo "Warning: $ENV_FILE not found; skipping .env update."
 fi
+
+echo "Done. Agora (fork) ready — Aqua stack available at Sepolia addresses."

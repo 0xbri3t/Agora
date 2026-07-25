@@ -12,8 +12,9 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 /// @notice Deploys Proposal contracts and indexes them for discovery by ID and admin.
 
 contract ProposalManager is Ownable, IProposalManager {
-    address public immutable PYUSD;       // Collateral/stable used by auctions/treasury
-    address public immutable ATTESTOR; 
+    address public immutable COLLATERAL;       // Collateral/stable used by auctions/treasury
+    address public immutable ATTESTOR;
+    address public immutable CCA_FACTORY;      // Uniswap Continuous Clearing Auction factory
     address public proposalImpl;
 
     // --- Indexing ---
@@ -24,11 +25,13 @@ contract ProposalManager is Ownable, IProposalManager {
     // --- Events ---
     event ProposalCreated(uint256 indexed id, address indexed admin, address proposal, string title);
 
-    constructor(address _pyusd, address _proposalImpl, address _attestor) Ownable(msg.sender) {
-        require(_pyusd != address(0), "PM:PYUSD=0");
-        PYUSD = _pyusd;
+    constructor(address _collateral, address _proposalImpl, address _attestor, address _ccaFactory) Ownable(msg.sender) {
+        require(_collateral != address(0), "PM:COLLATERAL=0");
+        require(_ccaFactory != address(0), "PM:CCA_FACTORY=0");
+        COLLATERAL = _collateral;
         proposalImpl = _proposalImpl;
         ATTESTOR = _attestor;
+        CCA_FACTORY = _ccaFactory;
     }
 
     /// @param _title Proposal title
@@ -70,14 +73,15 @@ contract ProposalManager is Ownable, IProposalManager {
             _auctionDuration,
             _liveDuration,
             _subjectToken,
-            PYUSD,
+            COLLATERAL,
             _minToOpen,
             _maxCap,
             _target,
             _data,
             _pythAddr,
             _pythId,
-            ATTESTOR
+            ATTESTOR,
+            CCA_FACTORY
         );
       
 

@@ -13,20 +13,20 @@ export function MarketBalancesPanel({ proposalId }: { proposalId: string }) {
   const { proposal } = useGetProposalById(proposalId)
   const chainId = useChainId()
 
-  const pyusdAddr = getContractAddress(chainId, 'PYUSD')
+  const collateralAddr = getContractAddress(chainId, 'COLLATERAL')
   const yesToken = proposal?.yesToken as `0x${string}` | undefined
   const noToken = proposal?.noToken as `0x${string}` | undefined
 
-  const [pyusd, setPyusd] = useState<bigint>(0n)
+  const [collateral, setCollateral] = useState<bigint>(0n)
   const [yes, setYes] = useState<bigint>(0n)
   const [no, setNo] = useState<bigint>(0n)
 
   const refetch = useCallback(async () => {
     try {
       if (!publicClient || !address) return
-      if (pyusdAddr) {
-        const b = await publicClient.readContract({ address: pyusdAddr, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as bigint
-        setPyusd(b ?? 0n)
+      if (collateralAddr) {
+        const b = await publicClient.readContract({ address: collateralAddr, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as bigint
+        setCollateral(b ?? 0n)
       }
       if (yesToken) {
         const b = await publicClient.readContract({ address: yesToken, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as bigint
@@ -39,7 +39,7 @@ export function MarketBalancesPanel({ proposalId }: { proposalId: string }) {
     } catch {
       // ignore
     }
-  }, [publicClient, address, pyusdAddr, yesToken, noToken])
+  }, [publicClient, address, collateralAddr, yesToken, noToken])
 
   useEffect(() => { void refetch() }, [refetch])
   useEffect(() => {
@@ -47,7 +47,7 @@ export function MarketBalancesPanel({ proposalId }: { proposalId: string }) {
     return () => clearInterval(id)
   }, [refetch])
 
-  const pyusdDisplay = useMemo(() => Number(pyusd ?? 0n) / 1e6, [pyusd])
+  const collateralDisplay = useMemo(() => Number(collateral ?? 0n) / 1e6, [collateral])
   const yesDisplay = useMemo(() => Number(yes ?? 0n) / 1e18, [yes])
   const noDisplay = useMemo(() => Number(no ?? 0n) / 1e18, [no])
 
@@ -69,9 +69,9 @@ export function MarketBalancesPanel({ proposalId }: { proposalId: string }) {
                 borderColor: "color-mix(in oklab, #61cdff 40%, transparent)",
               }}
             >
-              <span className="text-sm font-medium" style={{ color: "#61cdff" }}>PyUSD</span>
+              <span className="text-sm font-medium" style={{ color: "#61cdff" }}>USDC</span>
               <span className="font-mono text-base" style={{ color: "#61cdff" }}>
-                 $ {pyusdDisplay.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                 $ {collateralDisplay.toLocaleString(undefined, { maximumFractionDigits: 6 })}
               </span>
             </div>
 

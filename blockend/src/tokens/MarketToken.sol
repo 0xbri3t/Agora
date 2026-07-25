@@ -11,7 +11,7 @@ import {IMarketToken} from "../interfaces/IMarketToken.sol";
 
 /// @title MarketToken (YES/NO) 
 /// @notice Outcome token per proposal. Supports Permit, Capped (supply guard), and Pausable (freeze loser).
-/// @dev Owner = Proposal. A single `minter` (DutchAuction) can mint until disabled.
+/// @dev Owner = Proposal. A single `minter` (the Proposal) pre-mints the CCA supply, then minting is disabled.
 contract MarketToken is ERC20Permit, ERC20Pausable, ERC20Capped, Ownable, IMarketToken {
     address public minter;
     address public redeemer;      // Address allowed to receive transfers while paused
@@ -28,7 +28,7 @@ contract MarketToken is ERC20Permit, ERC20Pausable, ERC20Capped, Ownable, IMarke
     /// @param _name   e.g., "Agora YES #123 (#number is the ID of the proposal)"
     /// @param _symbol e.g., "YES-123"
     /// @param _owner  Proposal address
-    /// @param _minter DutchAuction
+    /// @param _minter Initial minter (the Proposal)
     /// @param _cap    Max total supply (18 decimals)
     constructor(
         string memory _name,

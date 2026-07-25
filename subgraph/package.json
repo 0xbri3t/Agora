@@ -1,0 +1,21 @@
+{
+  "name": "agora-subgraph",
+  "version": "1.0.0",
+  "description": "Agora futarchy subgraph \u2014 proposals, Aqua lot quotes, fills and TWAPs on Sepolia",
+  "license": "MIT",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "deploy": "graph deploy agora",
+    "create-local": "graph create --node http://localhost:8020/ agora",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 agora",
+    "test": "graph test"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-cli": "0.97.1",
+    "@graphprotocol/graph-ts": "0.38.1"
+  },
+  "devDependencies": {
+    "matchstick-as": "^0.6.0"
+  }
+}

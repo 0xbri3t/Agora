@@ -1,0 +1,132 @@
+specVersion: 1.0.0
+description: Agora futarchy — proposals, 1inch Aqua lot quotes, fills and TWAPs on Sepolia
+repository: https://github.com/arnaubriet/Agora
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: ProposalManager
+    network: sepolia
+    source:
+      address: "0x8C069587f3626A0d31D202e93de446871Ec1EdF5"
+      abi: ProposalManager
+      startBlock: 11348446
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Proposal
+        - Market
+        - Auction
+      abis:
+        - name: ProposalManager
+          file: ./abis/ProposalManager.json
+        - name: Proposal
+          file: ./abis/Proposal.json
+        - name: CCAuction
+          file: ./abis/CCAuction.json
+      eventHandlers:
+        - event: ProposalCreated(indexed uint256,indexed address,address,string)
+          handler: handleProposalCreated
+      file: ./src/proposal-manager.ts
+  - kind: ethereum
+    name: Aqua
+    network: sepolia
+    source:
+      address: "0x499943E74FB0cE105688beeE8Ef2ABec5D936d31"
+      abi: Aqua
+      startBlock: 11343344
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Quote
+        - Maker
+        - Market
+        - OpenLotIndex
+      abis:
+        - name: Aqua
+          file: ./abis/Aqua.json
+      eventHandlers:
+        - event: Shipped(address,address,bytes32,bytes)
+          handler: handleShipped
+        - event: Docked(address,address,bytes32)
+          handler: handleDocked
+      file: ./src/aqua.ts
+  - kind: ethereum
+    name: LimitSwapVMRouter
+    network: sepolia
+    source:
+      address: "0x4CF2713D08C5E439409b56efA4027F25EB0F6431"
+      abi: LimitSwapVMRouter
+      startBlock: 11343344
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Fill
+        - Quote
+        - Maker
+        - Market
+        - OpenLotIndex
+      abis:
+        - name: LimitSwapVMRouter
+          file: ./abis/LimitSwapVMRouter.json
+      eventHandlers:
+        - event: Swapped(bytes32,address,address,address,address,uint256,uint256)
+          handler: handleSwapped
+      file: ./src/router.ts
+templates:
+  - kind: ethereum
+    name: CCAuction
+    network: sepolia
+    source:
+      abi: CCAuction
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Auction
+        - Bid
+      abis:
+        - name: CCAuction
+          file: ./abis/CCAuction.json
+      eventHandlers:
+        - event: BidSubmitted(indexed uint256,indexed address,uint256,uint128)
+          handler: handleBidSubmitted
+        - event: BidExited(indexed uint256,indexed address,uint256,uint256)
+          handler: handleBidExited
+        - event: TokensClaimed(indexed uint256,indexed address,uint256)
+          handler: handleTokensClaimed
+        - event: ClearingPriceUpdated(uint256,uint256)
+          handler: handleClearingPriceUpdated
+      file: ./src/cca.ts
+  - kind: ethereum
+    name: Proposal
+    network: sepolia
+    source:
+      abi: Proposal
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Proposal
+        - TwapPoint
+      abis:
+        - name: Proposal
+          file: ./abis/Proposal.json
+      eventHandlers:
+        - event: ProposalActivated(indexed uint256,uint256,uint256)
+          handler: handleProposalActivated
+        - event: ProposalResolved(indexed uint256,uint256)
+          handler: handleProposalResolved
+        - event: ProposalCancelled(uint256)
+          handler: handleProposalCancelled
+        - event: TwapUpdated(uint256,uint256,uint256)
+          handler: handleTwapUpdated
+      file: ./src/proposal.ts

@@ -5,7 +5,7 @@ import { TickerTape } from "@/components/landing/ticker-tape"
 import { FutarchyDiagram } from "@/components/landing/futarchy-diagram"
 import { TeeSpec } from "@/components/landing/tee-spec"
 
-const BUILT_ON = ["1inch Aqua", "Hedera Testnet", "PYUSD"]
+const BUILT_ON = ["1inch Aqua", "Ethereum Sepolia", "Pyth", "USDC"]
 
 export default function HomePage() {
   return (

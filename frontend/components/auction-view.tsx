@@ -12,7 +12,7 @@ import { useTheme } from "next-themes"
 import { useAccount, useReadContract, usePublicClient } from "wagmi"
 import { proposal_abi } from "@/contracts/proposal-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
-import { dutchAuction_abi } from "@/contracts/dutchAuction-abi"
+import { cca_abi, q96ToPrice6d } from "@/contracts/cca-abi"
 import { treasury_abi } from "@/contracts/treasury-abi"
 import { ProposalStatus } from "@/lib/types"
 
@@ -119,15 +119,15 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const { data: yesAuctionAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "yesAuction" })
   const { data: noAuctionAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "noAuction" })
   const { data: treasuryAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "treasury" })
-  // Onchain minimum required to open (PyUSD, 6d or 18d per contract). Here it's uint256, represents PyUSD amount.
+  // Onchain minimum required to open (USDC, 6d or 18d per contract). Here it's uint256, represents USDC amount.
   const { data: minToOpen } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "minToOpen" })
   const minimumRequired = (typeof minToOpen === "bigint" ? minToOpen : auctionData.minimumRequired)
   const { data: isCancelled } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "state" })
   const proposalState = isCancelled === 3 ? "Cancelled" : (isCancelled === 2 ? "Resolved" : (isCancelled === 1 ? "Live" : "Auction")) as ProposalStatus
 
-  // Per-auction minimum token supply to consider market valid (18 decimals, token units)
-  const { data: yesMinToOpen } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "MIN_TO_OPEN" })
-  const { data: noMinToOpen } = useReadContract({ address: noAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "MIN_TO_OPEN" })
+  // Minimum tokens sold for a market to open (18d) — Proposal-level threshold
+  const yesMinToOpen = minToOpen
+  const noMinToOpen = minToOpen
 
   // Onchain remaining (cap - totalSupply) and user balances
   const { data: yesCap } = useReadContract({ address: yesTokenAddr as `0x${string}` | undefined, abi: marketToken_abi, functionName: "cap" })
@@ -139,13 +139,15 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const { data: yesUserBal } = useReadContract({ address: yesTokenAddr as `0x${string}` | undefined, abi: marketToken_abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] })
   const { data: noUserBal } = useReadContract({ address: noTokenAddr as `0x${string}` | undefined, abi: marketToken_abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] })
 
-  // On-chain raised amounts (PyUSD, 6d) from Treasury
+  // On-chain raised amounts (USDC, 6d) from Treasury
   const { data: potYes } = useReadContract({ address: treasuryAddr as `0x${string}` | undefined, abi: treasury_abi, functionName: "potYes" })
   const { data: potNo } = useReadContract({ address: treasuryAddr as `0x${string}` | undefined, abi: treasury_abi, functionName: "potNo" })
 
-  // On-chain current price (6 decimals) like the trade panel
-  const { data: yesPrice6d } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "priceNow" })
-  const { data: noPrice6d } = useReadContract({ address: noAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "priceNow" })
+  // On-chain current clearing price (Q96 -> 6 decimals)
+  const { data: yesClearingQ96 } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: cca_abi, functionName: "clearingPrice" })
+  const { data: noClearingQ96 } = useReadContract({ address: noAuctionAddr as `0x${string}` | undefined, abi: cca_abi, functionName: "clearingPrice" })
+  const yesPrice6d = typeof yesClearingQ96 === "bigint" ? q96ToPrice6d(yesClearingQ96) : undefined
+  const noPrice6d = typeof noClearingQ96 === "bigint" ? q96ToPrice6d(noClearingQ96) : undefined
 
   // Local overrides to allow instant updates after tx + periodic polling
   const [yesRemOverride, setYesRemOverride] = useState<bigint | undefined>(undefined)
@@ -160,10 +162,11 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   useEffect(() => { if (typeof yesPrice6d === "bigint") setYesPriceNow(Number(yesPrice6d) / 1_000_000) }, [yesPrice6d])
   useEffect(() => { if (typeof noPrice6d === "bigint") setNoPriceNow(Number(noPrice6d) / 1_000_000) }, [noPrice6d])
 
-  // Fetch on-chain curve params from YES auction
-  const { data: startPrice6d } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "START_PRICE" })
-  const { data: startTimeSec } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "START_TIME" })
-  const { data: endTimeSec } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: dutchAuction_abi, functionName: "END_TIME" })
+  // Curve params: the CCA clearing price starts at the floor and rises with demand
+  const { data: floorQ96 } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: cca_abi, functionName: "floorPrice" })
+  const startPrice6d = typeof floorQ96 === "bigint" ? q96ToPrice6d(floorQ96) : undefined
+  const { data: startTimeSec } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "auctionStartTime" })
+  const { data: endTimeSec } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "auctionEndTime" })
 
   const [startPrice, setStartPrice] = useState<number | undefined>(undefined)
   const [startTime, setStartTime] = useState<number | undefined>(undefined)
@@ -206,7 +209,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     const duration = endTime - startTime
     const pts = Array.from({ length: SAMPLES + 1 }, (_, i) => {
       const t = startTime + Math.round((i * duration) / SAMPLES)
-      const price = Math.max(startPrice * ((endTime - t) / duration), 0)
+      const price = startPrice // CCA baseline: the floor; clearing rises with demand
       return { time: t, price, isCurrent: false }
     })
     const now = (typeof blockTimestamp === 'number' ? blockTimestamp : Math.floor(Date.now() / 1000))
@@ -231,12 +234,12 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       } catch {}
       // Prices
       if (yesAuctionAddr) {
-        const p: bigint = await publicClient.readContract({ address: yesAuctionAddr as any, abi: dutchAuction_abi, functionName: "priceNow" })
-        setYesPriceNow(Number(p) / 1_000_000)
+        const p: bigint = await publicClient.readContract({ address: yesAuctionAddr as any, abi: cca_abi, functionName: "clearingPrice" })
+        setYesPriceNow(Number(q96ToPrice6d(p)) / 1_000_000)
       }
       if (noAuctionAddr) {
-        const p: bigint = await publicClient.readContract({ address: noAuctionAddr as any, abi: dutchAuction_abi, functionName: "priceNow" })
-        setNoPriceNow(Number(p) / 1_000_000)
+        const p: bigint = await publicClient.readContract({ address: noAuctionAddr as any, abi: cca_abi, functionName: "clearingPrice" })
+        setNoPriceNow(Number(q96ToPrice6d(p)) / 1_000_000)
       }
       // Remaining caps
       if (yesTokenAddr) {
@@ -262,7 +265,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         const bal: bigint = await publicClient.readContract({ address: noTokenAddr as any, abi: marketToken_abi, functionName: "balanceOf", args: [address] })
         setNoBalOverride(bal ?? 0n)
       }
-      // Treasury raised (PyUSD 6d)
+      // Treasury raised (USDC 6d)
       if (treasuryAddr) {
         const [py, pn] = await Promise.all([
           publicClient.readContract({ address: treasuryAddr as any, abi: treasury_abi, functionName: "potYes" }) as Promise<bigint>,
@@ -292,7 +295,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   useEffect(() => { if (yesBalOverride === undefined && typeof yesUserBal === "bigint") setYesBalOverride(yesUserBal) }, [yesBalOverride, yesUserBal])
   useEffect(() => { if (noBalOverride === undefined && typeof noUserBal === "bigint") setNoBalOverride(noUserBal) }, [noBalOverride, noUserBal])
 
-  // Compute total raised (PyUSD 6d) preferring on-chain Treasury values
+  // Compute total raised (USDC 6d) preferring on-chain Treasury values
   const totalRaised = useMemo(() => {
     if (typeof raisedOverride === "bigint") return raisedOverride
     if (typeof potYes === "bigint" || typeof potNo === "bigint") return ((potYes as bigint) ?? 0n) + ((potNo as bigint) ?? 0n)
@@ -382,8 +385,8 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Auction Price Evolution</CardTitle>
-            <CardDescription>Linear price decrease over time</CardDescription>
+            <CardTitle>Clearing Price</CardTitle>
+            <CardDescription>Uniswap CCA: starts at the floor and rises with demand</CardDescription>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 text-sm">

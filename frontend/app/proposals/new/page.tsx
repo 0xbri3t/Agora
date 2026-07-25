@@ -16,20 +16,21 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ConnectWalletButton } from "@/components/connect-wallet-button"
+import { ConnectWalletButton } from "@/components/wallet-button"
 
 import { getSupportedCollaterals, type Collateral } from "@/lib/collaterals"
 import { 
   useChainId,
-  useAccount
-} from "wagmi"
+  useAccount, useConfig } from "wagmi"
 import { proposalManager_abi } from "@/contracts/proposalManager-abi"
 import { getContractAddress } from "@/contracts/constants"
+import { getEthersSigner } from "@/lib/signer"
 
 export default function NewProposalPage() {
 
   const chainId = useChainId()
   const { address: account, isConnected } = useAccount()
+  const config = useConfig()
   const contractAddress = getContractAddress(chainId, "PROPOSAL_MANAGER")
 
   const tokenOptions: Collateral[] = React.useMemo(
@@ -213,17 +214,16 @@ export default function NewProposalPage() {
       setError(null)
       setIsPending(true)
 
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum) {
+      // Connector-based signer: covers extension and embedded/guest wallets
+      let signer
+      try {
+        signer = await getEthersSigner(config)
+      } catch {
         setIsPending(false)
         submittingRef.current = false
-        // Open guard if no wallet available
         setGuardOpen(true)
         return false
       }
-
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
 
       const contract = new ethers.Contract(
         contractAddress as `0x${string}`,
@@ -431,7 +431,7 @@ export default function NewProposalPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Note: Initial auction price is read from the selected Pyth feed and scaled to 6 decimals (PyUSD).</p>
+              <p className="text-xs text-muted-foreground">Note: Initial auction price is read from the selected Pyth feed and scaled to 6 decimals (USDC).</p>
               {showErrors && errors.subjectToken && (
                 <p className="text-xs text-destructive">{errors.subjectToken}</p>
               )}

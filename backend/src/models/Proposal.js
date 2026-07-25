@@ -8,6 +8,8 @@ const proposalSchema = new mongoose.Schema({
   // Proposal contract address
   proposalAddress: { type: String, required: false, index: true },
   admin: { type: String, required: true },
+  // Wallet that created the proposal via API (used for update/delete authorization)
+  creator: { type: String, required: false },
   title: { type: String, required: true },
   description: { type: String, required: true },
   startTime: { type: Number, required: true },
@@ -47,7 +49,7 @@ const proposalSchema = new mongoose.Schema({
         type: new mongoose.Schema({
           auctionAddress: String,
           marketToken: String,
-          pyusd: String,
+          collateral: String,
           treasury: String,
           admin: String,
           startTime: Number,
@@ -69,7 +71,7 @@ const proposalSchema = new mongoose.Schema({
         type: new mongoose.Schema({
           auctionAddress: String,
           marketToken: String,
-          pyusd: String,
+          collateral: String,
           treasury: String,
           admin: String,
           startTime: Number,
@@ -102,6 +104,16 @@ proposalSchema.virtual('rejectToken').get(function() {
 });
 
 proposalSchema.set('toJSON', { virtuals: true });
+
+// Find by internal id, on-chain contract id, or contract address
+proposalSchema.statics.findByAnyId = function(anyId) {
+  const idStr = String(anyId);
+  const clauses = [{ proposalContractId: idStr }];
+  const pidNum = Number(anyId);
+  if (!Number.isNaN(pidNum)) clauses.push({ id: pidNum });
+  if (/^0x[a-fA-F0-9]{40}$/.test(idStr)) clauses.push({ proposalAddress: idStr.toLowerCase() });
+  return this.findOne({ $or: clauses });
+};
 
 // Check if proposal is active
 proposalSchema.methods.checkIsActive = function() {

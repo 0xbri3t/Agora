@@ -10,7 +10,7 @@ import {ITreasury} from "../interfaces/ITreasury.sol";
 contract Treasury is Ownable , ITreasury {
     using SafeERC20 for IERC20;
 
-    address public immutable pyUSD;
+    address public immutable collateral;
     address public yesAuction;
     address public noAuction;
 
@@ -20,7 +20,7 @@ contract Treasury is Ownable , ITreasury {
 
     bool public refundsEnabled;
 
-    // balance of pyUSD per user
+    // balance of collateral per user
     mapping(address => uint256) public balances;
 
     error NotAuction();
@@ -45,8 +45,8 @@ contract Treasury is Ownable , ITreasury {
     }
 
 
-    constructor(address _pyUSD) Ownable(msg.sender) { 
-        pyUSD = _pyUSD; 
+    constructor(address _collateral) Ownable(msg.sender) { 
+        collateral = _collateral; 
     }
 
     function setAuctions(address _yes, address _no) external onlyOwner {
@@ -60,7 +60,7 @@ contract Treasury is Ownable , ITreasury {
         else if (msg.sender == noAuction)  { potNo  += amount; }
 
         balances[payer] += amount;
-        IERC20(pyUSD).safeTransferFrom( payer, address(this), amount);
+        IERC20(collateral).safeTransferFrom( payer, address(this), amount);
         emit FundedFromAuction(msg.sender, payer, amount);
     }
 
@@ -85,11 +85,25 @@ contract Treasury is Ownable , ITreasury {
     /// @notice Called by auctions during user refund flow (after burning user tokens).
     function refundTo(address _user, address _token , uint256 _amount) external onlyAuctionOrOwner() {
         if (!refundsEnabled) revert RefundsNotEnabled();
-        
-        IERC20(_token).safeTransferFrom(_user, address(this), _amount); 
-        IERC20(pyUSD).safeTransfer(_user, balances[_user]);
+
+        IERC20(_token).safeTransferFrom(_user, address(this), _amount);
+        IERC20(collateral).safeTransfer(_user, balances[_user]);
         emit RefundPaid(msg.sender, _user, _amount);
 
+    }
+
+    /// @notice Pro-rata redemption at resolution: pull the user's outcome tokens
+    ///         in and pay out the collateral share computed by the Proposal.
+    /// @dev The Proposal (owner) owns the pot accounting; this only moves funds.
+    function payout(address _user, address _token, uint256 _tokenAmount, uint256 _collateralAmount)
+        external
+        onlyOwner
+    {
+        if (!refundsEnabled) revert RefundsNotEnabled();
+
+        IERC20(_token).safeTransferFrom(_user, address(this), _tokenAmount);
+        IERC20(collateral).safeTransfer(_user, _collateralAmount);
+        emit RefundPaid(msg.sender, _user, _collateralAmount);
     }
 
 }

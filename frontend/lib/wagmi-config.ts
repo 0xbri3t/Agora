@@ -1,8 +1,7 @@
 import { http, createConfig } from "wagmi"
-import { mainnet, sepolia, type Chain } from "wagmi/chains"
-import { connectorsForWallets } from "@rainbow-me/rainbowkit"
-import { metaMaskWallet, rabbyWallet, injectedWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets"
-import { hederaWithIcon, hederaTestnetWithIcon, anvil } from './custom-chains'
+import { sepolia, type Chain } from "wagmi/chains"
+import { getDefaultConfig } from "@openfort/react/wagmi"
+import { anvil } from './custom-chains'
 
 const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || "00000000000000000000000000000000" // 32 character fallback
 
@@ -12,47 +11,23 @@ if (projectId.length !== 32) {
 }
 
 const chains = [
-  // mainnet,
-  // sepolia,
-  // hederaWithIcon as unknown as Chain,
-  hederaTestnetWithIcon as unknown as Chain,
+  sepolia,
   anvil as unknown as Chain,
 ] as [Chain, ...Chain[]]
 
-// Always show MetaMask + Rabby; allow others via injected + WalletConnect
-// Use signature compatible with various RainbowKit versions: provide wallets (uninvoked) and params separately.
-const connectors = connectorsForWallets(
-  [
-    {
-      groupName: 'Recommended',
-      wallets: [
-        metaMaskWallet,
-        rabbyWallet,
-      ],
+// Openfort supplies the external wallet connectors (MetaMask, WalletConnect,
+// Coinbase, injected) alongside its own embedded/guest wallet, so there is no
+// separate wallet kit here.
+export const config = createConfig(
+  getDefaultConfig({
+    appName: 'Agora',
+    appDescription: 'Futarchy markets decide',
+    walletConnectProjectId: projectId,
+    chains,
+    transports: {
+      [sepolia.id]: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'),
+      [anvil.id]: http(),
     },
-    {
-      groupName: 'Other wallets',
-      wallets: [
-        // Auto-detect other injected providers (Brave, Bitget, OKX, etc.)
-        injectedWallet,
-        // Enable QR-based wallets via WalletConnect without forcing any brand
-        walletConnectWallet,
-      ],
-    },
-  ],
-  { appName: 'Agora', projectId }
+    ssr: true,
+  })
 )
-
-
-export const config = createConfig({
-  chains,
-  transports: {
-    // [mainnet.id]: http(),
-    // [sepolia.id]: http(),
-    // [hederaWithIcon.id]: http(),
-    [hederaTestnetWithIcon.id]: http(process.env.NEXT_PUBLIC_RPC_URL),
-    [anvil.id]: http(),
-  },
-  connectors,
-  ssr: true,
-})

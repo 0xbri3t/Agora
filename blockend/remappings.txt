@@ -4,3 +4,7 @@ forge-std/=lib/forge-std/src/
 halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/
 openzeppelin-contracts/=lib/openzeppelin-contracts/
 @pythnetwork/pyth-sdk-solidity/=node_modules/@pythnetwork/pyth-sdk-solidity
+@1inch-swap-vm/=lib/swap-vm/
+@1inch-aqua/=lib/aqua/
+@1inch/aqua/=lib/aqua/
+@1inch/solidity-utils/=lib/solidity-utils/

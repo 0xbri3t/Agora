@@ -2,8 +2,9 @@ import { ethers } from "ethers"
 import { useCallback, useState } from "react"
 import { getContractAddress } from "@/contracts/constants"
 import { proposalManager_abi } from "@/contracts/proposalManager-abi"
-import { useAccount, useChainId } from "wagmi"
+import { useAccount, useChainId, useConfig } from "wagmi"
 import { useWalletAuth } from "./use-wallet-auth"
+import { getEthersSigner } from "@/lib/signer"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api"
 
@@ -18,6 +19,7 @@ type DeleteParams = {
 
 export function useDeleteProposal() {
   const { address: walletAddress } = useAccount()
+  const config = useConfig()
   const chainId = useChainId()
   const { ensureAuth } = useWalletAuth()
 
@@ -26,8 +28,6 @@ export function useDeleteProposal() {
   const [lastHash, setLastHash] = useState<string | null>(null)
   const [pending, setPending] = useState<boolean>(false)
 
-  const anyWindow = typeof window !== "undefined" ? (window as any) : ({} as any)
-
   const deleteProposal = useCallback(
     async ({ proposalAddress, backendId, alsoDeleteBackend = true }: DeleteParams) => {
       setError(null)
@@ -35,11 +35,10 @@ export function useDeleteProposal() {
       try {
         if (!proposalManagerAddress) throw new Error("ProposalManager address not configured for this network")
         if (!proposalAddress) throw new Error("proposalAddress is required")
-        if (!anyWindow?.ethereum) throw new Error("No wallet provider found")
+
 
         // 1) Send on-chain transaction to delete the proposal contract
-        const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-        const signer = await provider.getSigner()
+        const signer = await getEthersSigner(config)
         const contract = new ethers.Contract(proposalManagerAddress, proposalManager_abi as any, signer)
 
         const tx = await contract.deleteProposal(proposalAddress)

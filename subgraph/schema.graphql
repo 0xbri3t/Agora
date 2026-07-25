@@ -1,0 +1,164 @@
+enum ProposalStatus {
+  AUCTION
+  LIVE
+  RESOLVED
+  CANCELLED
+}
+
+enum MarketSide {
+  YES
+  NO
+}
+
+enum QuoteStatus {
+  OPEN
+  FILLED
+  CANCELLED
+}
+
+enum Winner {
+  YES
+  NO
+  TIE
+}
+
+"A futarchy proposal: one YES and one NO outcome market decide its fate."
+type Proposal @entity(immutable: false) {
+  "Proposal contract address (lowercase hex) — template events carry no numeric id"
+  id: ID!
+  "On-chain proposal id in the ProposalManager"
+  proposalId: BigInt!
+  address: Bytes!
+  admin: Bytes!
+  title: String!
+  description: String!
+  status: ProposalStatus!
+  createdAt: BigInt!
+  createdAtBlock: BigInt!
+  liveStart: BigInt
+  liveEnd: BigInt
+  resolvedAt: BigInt
+  winner: Winner
+  "Latest attestor-pushed TWAP for the YES token (USDC 6d per 1e18 token)"
+  twapYes: BigInt!
+  "Latest attestor-pushed TWAP for the NO token (USDC 6d per 1e18 token)"
+  twapNo: BigInt!
+  yesMarket: Market
+  noMarket: Market
+  markets: [Market!]! @derivedFrom(field: "proposal")
+  twapHistory: [TwapPoint!]! @derivedFrom(field: "proposal")
+}
+
+"The Uniswap Continuous Clearing Auction that bootstrapped one side of a market."
+type Auction @entity(immutable: false) {
+  "CCA contract address"
+  id: ID!
+  proposal: Proposal!
+  market: Market!
+  side: MarketSide!
+  "Latest clearing price, USDC 6d per 1e18 token"
+  clearingPrice: BigInt!
+  bidCount: Int!
+  "Total currency committed across bids (USDC 6d)"
+  totalBidAmount: BigInt!
+  bids: [Bid!]! @derivedFrom(field: "auction")
+}
+
+"A bid on a CCA: a budget with a max price."
+type Bid @entity(immutable: false) {
+  "auction address - bidId"
+  id: ID!
+  auction: Auction!
+  bidder: Bytes!
+  bidId: BigInt!
+  "Max price the bidder accepts, USDC 6d per 1e18 token"
+  maxPrice: BigInt!
+  "Currency committed (USDC 6d)"
+  amount: BigInt!
+  "Tokens allocated once the bid is exited"
+  tokensFilled: BigInt
+  "Currency returned once the bid is exited"
+  currencyRefunded: BigInt
+  exited: Boolean!
+  claimed: Boolean!
+  createdAt: BigInt!
+  txHash: Bytes!
+}
+
+"One outcome-token market (YES or NO side of a proposal). Id = outcome token address."
+type Market @entity(immutable: false) {
+  id: ID!
+  proposal: Proposal!
+  side: MarketSide!
+  token: Bytes!
+  "The CCA that bootstrapped this side"
+  auction: Auction
+  "Cumulative filled volume in USDC (6d)"
+  volumeUsdc: BigInt!
+  fillCount: Int!
+  openQuoteCount: Int!
+  "Price of the last fill (USDC 6d per 1e18 token)"
+  lastPrice: BigInt
+  lastFillAt: BigInt
+  quotes: [Quote!]! @derivedFrom(field: "market")
+  fills: [Fill!]! @derivedFrom(field: "market")
+}
+
+"A liquidity maker shipping Aqua lot quotes."
+type Maker @entity(immutable: false) {
+  id: ID!
+  quoteCount: Int!
+  fillCount: Int!
+  "Cumulative USDC received from fills (6d)"
+  volumeUsdc: BigInt!
+  quotes: [Quote!]! @derivedFrom(field: "maker")
+  fills: [Fill!]! @derivedFrom(field: "maker")
+}
+
+"A fill-or-kill lot shipped to 1inch Aqua. Id = Aqua strategyHash."
+type Quote @entity(immutable: false) {
+  id: ID!
+  market: Market!
+  maker: Maker!
+  "USDC the taker pays for the whole lot (6d)"
+  lotUsdc: BigInt!
+  "Outcome tokens the taker receives (18d)"
+  lotToken: BigInt!
+  "lotUsdc * 1e18 / lotToken — USDC 6d per 1e18 token"
+  price: BigInt!
+  status: QuoteStatus!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+  txHash: Bytes!
+  fill: Fill
+}
+
+"An on-chain swap through the SwapVM router against a shipped lot."
+type Fill @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  maker: Maker!
+  taker: Bytes!
+  quote: Quote
+  amountUsdc: BigInt!
+  amountToken: BigInt!
+  "amountUsdc * 1e18 / amountToken — USDC 6d per 1e18 token"
+  price: BigInt!
+  timestamp: BigInt!
+  txHash: Bytes!
+}
+
+"Attestor TWAP snapshot pushed to the Proposal contract."
+type TwapPoint @entity(immutable: true) {
+  id: ID!
+  proposal: Proposal!
+  twapYes: BigInt!
+  twapNo: BigInt!
+  timestamp: BigInt!
+}
+
+"FIFO index of open quotes sharing (maker, market, lotUsdc, lotToken) — links FOK fills back to their quote."
+type OpenLotIndex @entity(immutable: false) {
+  id: ID!
+  quoteIds: [String!]!
+}
