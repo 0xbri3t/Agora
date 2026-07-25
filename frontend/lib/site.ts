@@ -15,10 +15,5 @@ export const site = {
       // Assumption based on naming convention; update if different
       linkedin: "https://www.linkedin.com/in/arnau-briet-roura/",
     },
-    {
-      name: "Pau Gallego",
-      github: "https://github.com/PauGallego",
-      linkedin: "https://www.linkedin.com/in/pau-gallego-b975b0273/",
-    },
   ] as Author[],
 }
