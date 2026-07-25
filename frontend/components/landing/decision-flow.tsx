@@ -20,7 +20,7 @@ const STATIONS = [
 const YES_SPARK = "M528,168 L548,160 L568,163 L588,150 L608,154 L628,140 L648,143 L672,132"
 const NO_SPARK = "M528,150 L548,155 L568,152 L588,160 L608,158 L628,166 L648,163 L672,172"
 
-const STAGE_MS = 1200
+const STAGE_MS = 1500
 const INK = "var(--foreground)"
 const YES = "var(--data-up)"
 const NO = "var(--destructive)"
@@ -92,11 +92,11 @@ export function DecisionFlow({ className }: { className?: string }) {
           <motion.path d={YES_SPARK} fill="none" stroke={YES} strokeWidth={2}
             initial={false}
             animate={{ pathLength: at(2) ? 1 : 0.12 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }} />
+            transition={reduced ? { duration: 0 } : { duration: 1.0, ease: "easeOut" }} />
           <motion.path d={NO_SPARK} fill="none" stroke={NO} strokeWidth={2}
             initial={false}
             animate={{ pathLength: at(2) ? 1 : 0.12 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }} />
+            transition={reduced ? { duration: 0 } : { duration: 1.0, ease: "easeOut" }} />
           <text x={684} y={135} fontSize={10} fill={YES} className="font-mono">TWAP</text>
         </g>
 
