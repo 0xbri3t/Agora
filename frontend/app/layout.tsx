@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
+import { displayFont } from "@/lib/fonts"
 import { Providers } from "./providers"
 import { Navigation } from "@/components/navigation"
 import { SiteFooter } from "@/components/site-footer"
@@ -22,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} antialiased`}>
+      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} ${displayFont.variable} antialiased`}>
         <Providers>
           <div className="min-h-screen flex flex-col">
             <Suspense fallback={<div>Loading...</div>}>
