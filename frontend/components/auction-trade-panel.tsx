@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/stateful-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useAccount } from "wagmi"
+import { useAccount, useConfig } from "wagmi"
 import { toast } from "sonner"
 import type { MarketOption, AuctionData } from "@/lib/types"
 import { useAuctionBuy } from "@/hooks/use-auction-buy"
@@ -18,6 +18,7 @@ import { proposal_abi } from "@/contracts/proposal-abi"
 import { cca_abi } from "@/contracts/cca-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { treasury_abi } from "@/contracts/treasury-abi"
+import { getEthersSigner } from "@/lib/signer"
 
 interface AuctionTradePanelProps {
   auctionData: AuctionData
@@ -28,6 +29,7 @@ interface AuctionTradePanelProps {
 
 export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, fullHeight = false }: AuctionTradePanelProps) {
   const { isConnected, address } = useAccount()
+  const config = useConfig()
   const [selectedMarket, setSelectedMarket] = useState<MarketOption>("YES")
   const { amount, setAmount, approveAndBuy, isApproving, isBuying, error, remaining, userTokenBalance, onchainPrice, collateralBalance } =
     useAuctionBuy({ proposalAddress, side: selectedMarket })
@@ -68,10 +70,8 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
     if (!address) { toast.error("No account"); return false }
     setIsClaiming(true)
     try {
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum) { toast.error("No wallet found"); return false }
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
+      const signer = await getEthersSigner(config)
+      const provider = signer.provider
 
       const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
       const [yesAuctionAddr, noAuctionAddr] = await Promise.all([
@@ -141,10 +141,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
 
     const fetchBalances = async () => {
       try {
-        const anyWindow = window as any
-        if (!anyWindow?.ethereum) return
-        const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-        const signer = await provider.getSigner()
+        const signer = await getEthersSigner(config)
         const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
         const [yesTokenAddr, noTokenAddr, treasuryAddr, collateralAddr] = await Promise.all([
           proposal.yesToken(),
@@ -278,8 +275,8 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
           </div>
 
           <div>
-            <CardTitle className="text-lg">Buy Liquidity</CardTitle>
-            <CardDescription>Buy {selectedMarket} tokens at current auction price</CardDescription>
+            <CardTitle className="text-lg">Place Bid</CardTitle>
+            <CardDescription>Bid a USDC budget for {selectedMarket} tokens; the auction clears everyone at one price</CardDescription>
           </div>
         </CardHeader>
 
@@ -361,7 +358,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
                     : cn(variantEnabled, selectedMarket === "YES" ? "hover:ring-green-500" : "hover:ring-red-500"),
                 )}
               >
-                {isApproving ? "Approving..." : isBuying ? "Buying..." : "Buy Liquidity"}
+                {isApproving ? "Approving..." : isBuying ? "Bidding..." : "Place Bid"}
               </Button>
             )
           })()}

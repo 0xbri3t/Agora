@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useMemo, useState, useEffect } from "react"
-import { useAccount, useReadContract, useChainId, usePublicClient } from "wagmi"
+import { useAccount, useReadContract, useChainId, usePublicClient, useConfig, useSwitchChain } from "wagmi"
+import { getEthersSigner } from "@/lib/signer"
 import { parseUnits } from "viem"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
@@ -30,6 +31,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
   const { address } = useAccount()
   const chainId = useChainId()
   const publicClient = usePublicClient()
+  const config = useConfig()
   const [amount, setAmount] = useState<string>("") // USDC budget (6d)
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>()
 
@@ -101,19 +103,14 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     const budget = parseUnits(amount || "0", 6)
     if (budget === 0n) { setError("Enter an amount greater than 0"); throw new Error("zero amount") }
 
-    const anyWindow = window as any
-    if (!anyWindow?.ethereum) { setError("No wallet found"); throw new Error("no wallet") }
-    const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-    const signer = await provider.getSigner()
-
+    // Signer comes from the wagmi connector so embedded/guest wallets work too
+    let signer
     try {
-      const net = await provider.getNetwork()
-      if (chainId && Number(net.chainId) !== chainId) {
-        try {
-          await anyWindow.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] })
-        } catch {}
-      }
-    } catch {}
+      signer = await getEthersSigner(config)
+    } catch (e: any) {
+      setError("Connect wallet")
+      throw new Error("no wallet")
+    }
 
     if (!publicClient) { setError("No client"); throw new Error("no client") }
 
@@ -183,7 +180,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     } finally {
       setIsBuying(false)
     }
-  }, [address, usdcAddress, auctionAddress, amount, chainId, publicClient, refetchOnchain])
+  }, [address, usdcAddress, auctionAddress, amount, chainId, publicClient, refetchOnchain, config])
 
   return {
     amount,
@@ -210,6 +207,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
 export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${string}` }) {
   const { address } = useAccount()
   const publicClient = usePublicClient()
+  const config = useConfig()
   const [bids, setBids] = useState<{ bidId: bigint; priceQ96: bigint; amount: bigint }[]>([])
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -253,10 +251,8 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
     setError(null)
     setIsWorking(true)
     try {
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum || !auctionAddress) throw new Error('No wallet')
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
+      if (!auctionAddress) throw new Error('No auction')
+      const signer = await getEthersSigner(config)
       const auction = new ethers.Contract(auctionAddress, CCA_WRITE_ABI, signer)
       try {
         const tx = await auction.exitBid(bidId)
@@ -275,7 +271,7 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
     } finally {
       setIsWorking(false)
     }
-  }, [auctionAddress, refetch])
+  }, [auctionAddress, refetch, config])
 
   return { bids, refetch, exitAndClaim, isWorking, error }
 }

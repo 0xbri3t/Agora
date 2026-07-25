@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
 import { AuthProvider, OpenfortProvider } from '@openfort/react'
+import { AccountTypeEnum } from '@openfort/openfort-js'
 import { OpenfortWagmiBridge } from '@openfort/react/wagmi'
 import { config } from '@/lib/wagmi-config'
 import { ThemeProvider } from "next-themes"
@@ -34,8 +35,16 @@ function WalletProvider({ children }: { children: ReactNode }) {
           createEncryptedSessionEndpoint: '/api/openfort/encryption-session',
           // Guests land with a usable wallet instead of a setup flow
           connectOnLogin: true,
+          // Gas sponsorship runs through Openfort's bundler, which only
+          // accepts smart accounts — an EOA is rejected with
+          // "Account type not supported".
           ...(SPONSORSHIP_ID
-            ? { ethereum: { ethereumFeeSponsorshipId: SPONSORSHIP_ID } }
+            ? {
+                ethereum: {
+                  accountType: AccountTypeEnum.SMART_ACCOUNT,
+                  ethereumFeeSponsorshipId: SPONSORSHIP_ID,
+                },
+              }
             : {}),
         }}
         uiConfig={{

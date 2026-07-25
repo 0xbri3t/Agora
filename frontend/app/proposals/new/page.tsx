@@ -21,15 +21,16 @@ import { ConnectWalletButton } from "@/components/wallet-button"
 import { getSupportedCollaterals, type Collateral } from "@/lib/collaterals"
 import { 
   useChainId,
-  useAccount
-} from "wagmi"
+  useAccount, useConfig } from "wagmi"
 import { proposalManager_abi } from "@/contracts/proposalManager-abi"
 import { getContractAddress } from "@/contracts/constants"
+import { getEthersSigner } from "@/lib/signer"
 
 export default function NewProposalPage() {
 
   const chainId = useChainId()
   const { address: account, isConnected } = useAccount()
+  const config = useConfig()
   const contractAddress = getContractAddress(chainId, "PROPOSAL_MANAGER")
 
   const tokenOptions: Collateral[] = React.useMemo(
@@ -213,17 +214,16 @@ export default function NewProposalPage() {
       setError(null)
       setIsPending(true)
 
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum) {
+      // Connector-based signer: covers extension and embedded/guest wallets
+      let signer
+      try {
+        signer = await getEthersSigner(config)
+      } catch {
         setIsPending(false)
         submittingRef.current = false
-        // Open guard if no wallet available
         setGuardOpen(true)
         return false
       }
-
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
 
       const contract = new ethers.Contract(
         contractAddress as `0x${string}`,

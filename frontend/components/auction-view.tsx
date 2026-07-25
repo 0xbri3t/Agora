@@ -385,8 +385,8 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Auction Price Evolution</CardTitle>
-            <CardDescription>Linear price decrease over time</CardDescription>
+            <CardTitle>Clearing Price</CardTitle>
+            <CardDescription>Uniswap CCA: starts at the floor and rises with demand</CardDescription>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 text-sm">
