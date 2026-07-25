@@ -34,6 +34,9 @@ export default function HomePage() {
               <figcaption className="mt-2 font-mono text-xs text-muted-foreground/60">
                 — Arnau Briet
               </figcaption>
+              <p className="mt-5 font-display text-base text-foreground">
+                Agora solves this.
+              </p>
             </figure>
           </div>
         </div>
