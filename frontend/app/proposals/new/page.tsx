@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
-import { isAddress,  Hex } from "viem"
+import { Hex } from "viem"
 import { ethers } from "ethers"
 
 import { Button as StatefulButton } from "@/components/ui/stateful-button"
@@ -56,8 +56,6 @@ export default function NewProposalPage() {
     subjectToken: "",
     minToOpen: "",
     maxCap: "",
-    targetAddress: "",
-    calldata: "",
     pythAddress: "",
     pythId: "",
   })
@@ -68,8 +66,6 @@ export default function NewProposalPage() {
   const MAX_TITLE = 80
   const MAX_DESC = 600
 
-  const [useTarget, setUseTarget] = useState<"YES" | "NO">("NO")
-
   // Validation state and helpers
   type Errors = Partial<Record<
     | "title"
@@ -78,8 +74,7 @@ export default function NewProposalPage() {
     | "liveDuration"
     | "subjectToken"
     | "minToOpen"
-    | "maxCap"
-    | "targetAddress",
+    | "maxCap",
     string
   >>
   const [errors, setErrors] = useState<Errors>({})
@@ -124,13 +119,8 @@ export default function NewProposalPage() {
       next.maxCap = "Max cap must be greater than or equal to Min to open."
     }
 
-    if (useTarget === "YES") {
-      if (!formData.targetAddress.trim()) next.targetAddress = "Please provide a target contract address."
-      else if (!isAddress(formData.targetAddress)) next.targetAddress = "Target address is not a valid address."
-    }
-
     return next
-  }, [formData, useTarget])
+  }, [formData])
 
   const isFormValid = React.useMemo(() => {
     const v = validate()
@@ -195,19 +185,13 @@ export default function NewProposalPage() {
 
     toast({ title: "Submitting", description: "Validating inputs and preparing transaction..." })
 
-    if (useTarget === "YES") {
-      if (!formData.targetAddress.trim() || !isAddress(formData.targetAddress)) {
-        return fail("Please provide a valid target contract address.")
-      }
-    }
-
     if (!contractAddress) {
       return fail("Contract not found on this network.")
     }
 
-    const targetAddressArg = useTarget === "YES"
-      ? (formData.targetAddress as `0x${string}`)
-      : "0x0000000000000000000000000000000000000000"
+    // Target-contract execution was dropped from the product: proposals
+    // resolve on markets alone, so the on-chain args are always empty.
+    const targetAddressArg = "0x0000000000000000000000000000000000000000"
 
     // Ethers setup
     try {
@@ -242,7 +226,7 @@ export default function NewProposalPage() {
         to18(formData.minToOpen),
         to18(formData.maxCap),
         targetAddressArg,
-        formData.calldata ? (formData.calldata as `0x${string}`) : "0x",
+        "0x",
         formData.pythAddress as `0x${string}`,
         `0x${formData.pythId}`
       )
@@ -478,65 +462,6 @@ export default function NewProposalPage() {
                   <p className="text-xs text-destructive">{errors.maxCap}</p>
                 )}
               </div>
-            </div>
-
-            {/* Use target selector */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Use Target Contract</Label>
-              <div className="flex items-center gap-1 bg-muted p-0.5 rounded-md w-[220px]">
-                <button
-                  type="button"
-                  onClick={() => setUseTarget("YES")}
-                  className={`flex-1 text-center px-3 py-1 rounded-md text-sm font-semibold transition-colors duration-200 ${
-                    useTarget === "YES"
-                      ? "text-primary border border-primary"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  YES
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUseTarget("NO")}
-                  className={`flex-1 text-center px-3 py-1 rounded-md text-sm font-semibold transition-colors duration-200 ${
-                    useTarget === "NO"
-                      ? "text-primary border border-primary"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  NO
-                </button>
-              </div>
-            </div>
-
-            {/* Target + Calldata */}
-            <div className="space-y-2">
-              <Label htmlFor="targetAddress" className="text-base">
-                Target Contract Address {useTarget === "YES" ? "*" : ""}
-              </Label>
-              <Input
-                id="targetAddress"
-                placeholder={useTarget === "YES" ? "0x..." : "Not using a target contract"}
-                value={formData.targetAddress}
-                onChange={(e) => setFormData({ ...formData, targetAddress: e.target.value })}
-                className="font-mono text-sm"
-                disabled={useTarget === "NO"}
-              />
-              {useTarget === "YES" && showErrors && errors.targetAddress && (
-                <p className="text-xs text-destructive">{errors.targetAddress}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="calldata" className="text-base">Calldata</Label>
-              <Textarea
-                id="calldata"
-                placeholder={useTarget === "YES" ? "0x..." : "Disabled when not using a target contract"}
-                value={formData.calldata}
-                onChange={(e) => setFormData({ ...formData, calldata: e.target.value })}
-                className={`font-mono text-sm min-h-[100px] ${useTarget === "NO" ? "opacity-60 cursor-not-allowed" : ""}`}
-                disabled={useTarget === "NO"}
-              />
             </div>
 
             {/* Submit */}
