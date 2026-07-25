@@ -4,7 +4,7 @@ import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
 import { TickerTape } from "@/components/landing/ticker-tape"
 import { FutarchyDiagram } from "@/components/landing/futarchy-diagram"
 import { TeeSpec } from "@/components/landing/tee-spec"
-import { AsciiAgora } from "@/components/landing/ascii-agora"
+import { PixelAgora } from "@/components/landing/pixel-agora"
 
 const BUILT_ON = ["1inch Aqua", "Ethereum Sepolia", "Pyth", "USDC"]
 
@@ -27,7 +27,7 @@ export default function HomePage() {
           </div>
 
           <div className="hidden lg:block">
-            <AsciiAgora className="h-full min-h-[520px] w-full" />
+            <PixelAgora className="flex h-full min-h-[520px] w-full items-center justify-center" />
           </div>
         </div>
 
