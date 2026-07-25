@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Starting FutarFi API Docker services..."
+echo "Starting Agora API Docker services..."
 
 # Start services
 docker-compose up -d

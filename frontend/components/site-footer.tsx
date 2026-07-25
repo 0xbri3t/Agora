@@ -18,7 +18,7 @@ export function SiteFooter() {
     <footer className="border-t border-border bg-transparent">
       <div className="container mx-auto px-4 py-8 grid gap-8 md:grid-cols-3">
         <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground">FutarFi</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">Agora</h3>
           <Link
             href={site.website}
             target="_blank"
@@ -80,7 +80,7 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="container mx-auto px-4 pb-8 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-        <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} FutarFi</span>
+        <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} Agora</span>
         {proposalManagerAddress && (
           <span className="font-mono text-xs text-muted-foreground">
             Hedera Testnet ·{" "}

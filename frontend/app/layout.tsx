@@ -12,7 +12,7 @@ import { Toaster as SonnerToaster } from "sonner"
 import "@/styles/globals.css"
 
 export const metadata: Metadata = {
-  title: "FutarFi",
+  title: "Agora",
   description: "Create proposals, open prediction markets, and execute outcomes trustlessly",
 }
 

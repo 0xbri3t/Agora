@@ -1,4 +1,4 @@
-db = db.getSiblingDB('futarfi');
+db = db.getSiblingDB('agora');
 
 db.createUser({
   user: 'futarchy_user',

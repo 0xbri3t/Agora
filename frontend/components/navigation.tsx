@@ -14,13 +14,13 @@ export function Navigation() {
         <Link href="/" className="flex items-center gap-3 group">
           <Image
             src="/whiteLogo.png"
-            alt="FutarFi logo"
+            alt="Agora logo"
             width={40}
             height={40}
             priority
           />
           <span className="font-display text-[18px] text-foreground transition-opacity group-hover:opacity-80 sm:mr-2">
-            FutarFi
+            Agora
           </span>
         </Link>
 

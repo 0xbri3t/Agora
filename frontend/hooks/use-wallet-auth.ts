@@ -12,7 +12,7 @@ export type WalletAuth = {
   verifiedAt?: number
 }
 
-const STORAGE_KEY = "futarfi:walletAuth"
+const STORAGE_KEY = "agora:walletAuth"
 const API_BASE = process.env.NEXT_PUBLIC_API_URL 
 // Reverification TTL set to 59 minutes
 const AUTH_TTL_MS = 59 * 60 * 1000

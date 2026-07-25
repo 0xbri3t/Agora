@@ -31,7 +31,7 @@ const verifyWalletSignature = async (req, res, next) => {
     }
 
     // Verify message format
-    const expectedMessage = `FutarFi Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
+    const expectedMessage = `Agora Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
     
     if (message !== expectedMessage) {
       return res.status(401).json({ 
@@ -95,7 +95,7 @@ const requireWalletAddress = (req, res, next) => {
  */
 const generateAuthMessage = (address) => {
   const timestamp = Date.now();
-  const message = `FutarFi Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
+  const message = `Agora Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
   return { message, timestamp };
 };
 

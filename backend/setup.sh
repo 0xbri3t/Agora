@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Setting up FutarFi API with Docker..."
+echo "Setting up Agora API with Docker..."
 
 
 # Install dependencies

@@ -40,7 +40,7 @@ const connectors = connectorsForWallets(
       ],
     },
   ],
-  { appName: 'FutarFi', projectId }
+  { appName: 'Agora', projectId }
 )
 
 

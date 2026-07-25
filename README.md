@@ -2,7 +2,7 @@
 Futarchy-powered DeFi governance: PYUSD payments, Pyth pull oracles, and a TEE-secured private order book on Hedera.
 
 Currently live on!: 
-- [FutarFi landing page](https://www.futarfi.com)
+- [Agora landing page](https://www.futarfi.com)
 - [Api docs](https://api.futarfi.com)
 
 ---
@@ -15,7 +15,7 @@ Mentor: [Alex Arteaga](@alex-alra-arteaga)
 
 ## Introduction
 
-FutarFi is a futarchy-driven prediction market on the Hedera EVM, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs on an order book inside a Trusted Execution Environment (TEE), with matching isolated from MEV and anchored on-chain. Resolution uses TWAP with Pyth as the price oracle: the winning side captures value via option-style payouts, while the losing side can claim back by redeeming their MarketTokens for underlying collateral (PYUSD) at the closing (TWAP) price, ensuring a deterministic, pro-rata unwind.
+Agora is a futarchy-driven prediction market on the Hedera EVM, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs on an order book inside a Trusted Execution Environment (TEE), with matching isolated from MEV and anchored on-chain. Resolution uses TWAP with Pyth as the price oracle: the winning side captures value via option-style payouts, while the losing side can claim back by redeeming their MarketTokens for underlying collateral (PYUSD) at the closing (TWAP) price, ensuring a deterministic, pro-rata unwind.
 
 ---
 
@@ -39,7 +39,7 @@ Traditional DAO and DeFi governance frameworks rely heavily on voting mechanisms
 Worse, voter apathy and rational irrationality mean individuals have little incentive to even learn about complex policies—the probability that any single vote changes the outcome is essentially negligible.
 
 ### The Solution
-FutarFi introduces futarchy-based decision-making, where predictions, not raw votes, guide choices. Through prediction markets, participants financially back the outcome they believe will create the most value. Market prices become real-time, tamper-resistant signals of collective confidence.
+Agora introduces futarchy-based decision-making, where predictions, not raw votes, guide choices. Through prediction markets, participants financially back the outcome they believe will create the most value. Market prices become real-time, tamper-resistant signals of collective confidence.
 
 - **Aligns incentives:** those who believe they have superior information risk capital to correct prices, and in doing so reveal that information to everyone.
 - **Reduces rhetoric:** replaces speculative debate with prices that embed probabilities about outcomes.
@@ -52,7 +52,7 @@ FutarFi introduces futarchy-based decision-making, where predictions, not raw vo
 
 A major pain point for any new protocol/market is the cold start: thin books, wide spreads, and noisy first prints caused by insufficient volume/liquidity. Early trades are easy to push around, UX suffers, and governance signals get distorted.
 
-FutarFi addresses this with pre-market dual Dutch auctions (YES/NO). The auction price decays over a fixed window (from 2× → 0 relative to a base), letting participants purchase the initial supply before continuous trading begins. This design creates clear incentives and healthier market microstructure at t = 0:
+Agora addresses this with pre-market dual Dutch auctions (YES/NO). The auction price decays over a fixed window (from 2× → 0 relative to a base), letting participants purchase the initial supply before continuous trading begins. This design creates clear incentives and healthier market microstructure at t = 0:
 
 - **Discount incentive:** early buyers can acquire MarketTokens at a lower expected cost than the open, compensating them for bootstrapping depth.
 - **Information revelation:** informed participants can act on private knowledge ahead of the open, moving the clearing price toward fundamentals.
@@ -160,7 +160,7 @@ forge script scripts/Deploy.s.sol --rpc-url $HEDERA_RPC --broadcast
 
 ---
 
-FutarFi is an experimental futarchy-driven prediction market designed to enable transparent, economically rational, and verifiable decision-making in decentralized systems.
+Agora is an experimental futarchy-driven prediction market designed to enable transparent, economically rational, and verifiable decision-making in decentralized systems.
 
 ---
 

@@ -51,7 +51,7 @@ io.on('connection', (socket) => {
         socket.emit('auth-error', { error: 'Missing auth fields' });
         return;
       }
-      const expectedMessage = `FutarFi Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
+      const expectedMessage = `Agora Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
       const now = Date.now();
       const fiveMinutes = 5 * 60 * 1000;
       if (message !== expectedMessage || now - parseInt(timestamp) > fiveMinutes) {
@@ -129,7 +129,7 @@ app.use('/api/chain', chainRouter); // read-only info (address, chainId)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'FutarFi API Documentation'
+  customSiteTitle: 'Agora API Documentation'
 }));
 
 // Redirect root to API documentation
