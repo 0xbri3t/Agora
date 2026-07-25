@@ -27,12 +27,14 @@ cast send $COLLATERAL "mint(address,uint256)" $ANVIL0 100000000000 --rpc-url $RP
 cast send $COLLATERAL "mint(address,uint256)" $ANVIL1 100000000000 --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null
 
 # Seed a demo proposal so the UI has something to show right away.
-# Short auction (10 min -> 50 blocks) so `./dev.sh skip auction 1` is quick.
+# The CCA counts BLOCKS: 6h/12s = 1800 blocks, which at the dev block time is
+# an hour of wall clock — long enough to click through the auction by hand.
+# Use `./dev.sh skip auction 1` to jump to the end whenever you want.
 echo "Creating demo proposal..."
 cast send $PROPOSAL_MANAGER \
   "createProposal(string,string,uint256,uint256,string,uint256,uint256,address,bytes,address,bytes32)" \
   "Adopt Aqua trading for Agora?" "Futarchy decides via YES/NO markets" \
-  600 3600 "ETH" 1000000000000000000 100000000000000000000 \
+  21600 3600 "ETH" 1000000000000000000 100000000000000000000 \
   0x0000000000000000000000000000000000000000 0x \
   $PYTH $ETH_USD_FEED \
   --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null \
