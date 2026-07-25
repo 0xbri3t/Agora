@@ -317,9 +317,18 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
               <span className="font-mono">${currentPrice.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-muted-foreground">Your Max Price (2× current):</span>
+              <span className="font-mono">${(currentPrice * 2).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Estimated Tokens:</span>
               <span className="font-mono">{Number(estimatedTokens).toFixed(6)}</span>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Uniform-price auction: you commit a USDC budget capped at your max
+              price. Everyone pays the same final clearing price at close — your
+              exact tokens are known then, and claimed after settlement.
+            </p>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Your t{selectedMarket} Balance:</span>
               <span className="font-mono">{(Number((userTokenBalance) ?? 0n) / 1e18).toFixed(6)}</span>
