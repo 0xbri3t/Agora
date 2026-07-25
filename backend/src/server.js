@@ -15,6 +15,7 @@ const authRouter = require('./routes/auth');
 const realtimeRouter = require('./routes/realtime');
 const auctionsRouter = require('./routes/auctions');
 const chainRouter = require('./routes/chain');
+const copilotRouter = require('./routes/copilot');
 const rateLimit = require('./middleware/rateLimit');
 const { verifySignedMessage } = require('./middleware/walletAuth');
 const { notifyProposalUpdate, notifyAuctionUpdate } = require('./middleware/websocket');
@@ -111,6 +112,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/realtime', realtimeRouter);
 app.use('/api/auctions', auctionsRouter);
 app.use('/api/chain', chainRouter); // read-only info (address, chainId)
+app.use('/api/copilot', copilotRouter); // futarchy copilot (subgraph-grounded)
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   explorer: true,

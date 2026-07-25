@@ -13,6 +13,7 @@ import { AuctionTradePanel } from "@/components/auction-trade-panel"
 import { MarketTradePanel } from "@/components/market-trade-panel"
 import { MarketBalancesPanel } from "@/components/market-balances-panel"
 import { MarketPriceHeader } from "@/components/market-price-header"
+import { CopilotPanel } from "@/components/copilot-panel"
 import { useChainId, useAccount } from "wagmi"
 // Removed blocking dialog imports
 // import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -331,6 +332,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
                   onOrderPlaced={() => { refetchUserOrders(); refetchOrderbook(); }}
                 />
                 <MarketBalancesPanel proposalId={proposal.id} />
+                <CopilotPanel proposalId={proposal.id} />
               </div>
 
             </>
