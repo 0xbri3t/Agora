@@ -2,9 +2,8 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Plus, Clock, User, Loader2, AlertCircle } from "lucide-react"
+import { Card } from "@/components/ui/card"
+import { Plus, Loader2, AlertCircle } from "lucide-react"
 // import { useProposalsByAdmin } from "@/hooks/use-proposals-by-admin"
 import { useGetAllProposals } from "@/hooks/use-get-all-proposals"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -20,10 +19,10 @@ import { useToast } from "@/hooks/use-toast"
 
 
 const statusStyles = {
-  Auction: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  Live: "bg-green-500/10 text-green-600 border-green-500/20",
-  Resolved: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  Cancelled: "bg-red-500/10 text-red-600 border-red-500/20",
+  Auction: "text-data-wait",
+  Live: "text-data-up",
+  Resolved: "text-muted-foreground",
+  Cancelled: "text-data-down",
 } as const
 
 const statusLabels = {
@@ -124,24 +123,26 @@ export default function ProposalsPage() {
     <div className="container mx-auto px-4 py-12">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div className="min-w-0 flex-1">
-          <h1 className="text-4xl font-bold mb-2">Proposals</h1>
-          <p className="text-muted-foreground break-words w-full">Browse and vote on active governance proposals</p>
+          <h1 className="font-display text-4xl text-foreground mb-1">Markets</h1>
+          <p className="font-mono text-xs tabular-nums text-muted-foreground">
+            {String(filteredList.length).padStart(2, "0")} proposals
+          </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 items-center w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 w-full sm:w-auto">
           {isConnected ? (
-            <>
-              <p className="text-base text-muted-foreground m-2 break-words w-full sm:w-auto" id="pyusd-balance">
-                PYUSD balance: {Number(pyUSDBalance) / 1e6}
-              </p>
-              <Button size="lg" className="bg-blue-600 w-full sm:w-auto min-w-[180px]" variant="default" onClick={mintPublic}>
-                Claim some PYUSD
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <span className="font-mono text-sm tabular-nums text-muted-foreground" id="pyusd-balance">
+                {Number(pyUSDBalance) / 1e6} PYUSD
+              </span>
+              <Button size="sm" variant="outline" onClick={mintPublic}>
+                Mint PYUSD
               </Button>
-            </>
+            </div>
           ) : null}
-          <Button asChild size="lg" className="w-full sm:w-auto min-w-[180px]">
+          <Button asChild size="lg" variant="default" className="w-full sm:w-auto">
             <Link href="/proposals/new">
               <Plus className="mr-2 h-5 w-5" />
-              Create Proposal
+              New proposal
             </Link>
           </Button>
         </div>
@@ -184,65 +185,62 @@ export default function ProposalsPage() {
           </div>
         </Card>
       ) : (
-        <div className="flex flex-col gap-1 space-y-4 ">
+        <div className="flex flex-col border border-border rounded-[4px]">
           {/* Removed wallet guard to allow viewing proposals without a connected wallet */}
+          {/* Header row (md+) — labels for the shared grid template */}
+          <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto] items-center gap-6 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+            <span>Title</span>
+            <span className="w-20 text-right">Status</span>
+            <span className="w-28 text-right">Admin</span>
+            <span className="w-24 text-right">Ends</span>
+          </div>
           {filteredList.map((proposal: any) => {
             const stateKey = (proposal.state ?? 'Auction') as StatusKey
             return (
-              <div key={proposal.id} className="space-y-2">
-                <Link href={`/proposals/${proposal.id}`}>
-                  <Card className="hover:border-primary/50 transition-colors">
-                    <CardHeader>
-                      <div className="flex items-start justify-between gap-4 overflow-auto">
-                        <div className="space-y-2 flex-1 min-w-0">
-                          <CardTitle className="text-2xl truncate">{proposal.title}</CardTitle>
-                          <CardDescription className="text-base leading-relaxed line-clamp-2">{proposal.description}</CardDescription>
-                        </div>
-                        <Badge variant="outline" className={statusStyles[stateKey]}>
-                          {statusLabels[stateKey]}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          <span>Created by {formatAddress(proposal.admin)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4" />
-                          <span>Started at: {new Date((proposal.auctionStartTime || 0) * 1000).toLocaleDateString()}</span>
-                        </div>
+              <Link
+                key={proposal.id}
+                href={`/proposals/${proposal.id}`}
+                className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] items-center gap-1 md:gap-6 border-b border-border px-4 py-3 last:border-b-0 transition-colors hover:bg-card"
+              >
+                <span className="min-w-0 truncate text-foreground">{proposal.title}</span>
+                <span className={`md:w-20 md:text-right text-sm font-medium ${statusStyles[stateKey]}`}>
+                  {statusLabels[stateKey]}
+                </span>
+                <span className="md:w-28 md:text-right font-mono text-xs tabular-nums text-muted-foreground">
+                  {formatAddress(proposal.admin)}
+                </span>
+                <span className="md:w-24 md:text-right font-mono text-xs tabular-nums text-muted-foreground">
+                  {new Date((proposal.auctionStartTime || 0) * 1000).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
 
-                        {/* {isConnected && address && proposal?.admin && String(address).toLowerCase() === String(proposal.admin).toLowerCase() ? (
-                          <div className="ml-auto">
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="bg-rose-600 text-white border border-rose-700/30 hover:bg-rose-700 hover:shadow-lg hover:brightness-105 cursor-pointer transition-all duration-150 active:scale-95"
-                              disabled={pending}
-                              onClick={async (e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                try {
-                                  const res = await deleteProposal({ proposalAddress: proposal.address })
-                                  if ((res as any)?.error) throw new Error((res as any).error)
-                                  toast({ title: "Proposal deleted", description: `Tx hash: ${(res as any).txHash ?? ''}` })
-                                  try { await refetch?.() } catch {}
-                                } catch (err: any) {
-                                  toast({ title: "Delete failed", description: err?.message || String(err), variant: "destructive" })
-                                }
-                              }}
-                            >
-                              Delete proposal
-                            </Button>
-                          </div>
-                        ) : null} */}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              </div>
+                {/* {isConnected && address && proposal?.admin && String(address).toLowerCase() === String(proposal.admin).toLowerCase() ? (
+                  <div className="md:col-span-4 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-data-down hover:text-data-down hover:bg-data-down/10"
+                      disabled={pending}
+                      onClick={async (e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        try {
+                          const res = await deleteProposal({ proposalAddress: proposal.address })
+                          if ((res as any)?.error) throw new Error((res as any).error)
+                          toast({ title: "Proposal deleted", description: `Tx hash: ${(res as any).txHash ?? ''}` })
+                          try { await refetch?.() } catch {}
+                        } catch (err: any) {
+                          toast({ title: "Delete failed", description: err?.message || String(err), variant: "destructive" })
+                        }
+                      }}
+                    >
+                      Delete proposal
+                    </Button>
+                  </div>
+                ) : null} */}
+              </Link>
             )
           })}
         </div>

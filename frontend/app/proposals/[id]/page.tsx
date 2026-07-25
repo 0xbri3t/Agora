@@ -28,7 +28,7 @@ import { AuctionResolvedOnChain } from "@/components/resolution-view"
 import { getContractAddress } from "@/contracts/constants"
 
 interface PageProps {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 function generateProposalData(id: string, hookProposal: any): Proposal {
@@ -144,7 +144,7 @@ function mapBackendOrderToUserOrder(o: any): UserOrder {
 
 
 export default function ProposalDetailPage({ params }: PageProps) {
-  const { id } = params
+  const { id } = React.use(params)
 
   const chainId = useChainId()
 

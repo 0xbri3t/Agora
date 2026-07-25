@@ -7,3 +7,8 @@ blockend/src/Market.sol
 # Local agent tooling (not part of the project)
 .agents/
 .claude/
+.dev/
+
+# Local planning docs (contain local paths)
+docs/superpowers/
+docs/hackathon/
