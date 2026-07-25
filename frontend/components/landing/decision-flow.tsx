@@ -11,16 +11,16 @@ import { motion, useReducedMotion } from "motion/react"
  */
 
 const STATIONS = [
-  { x: 120, name: "Proposal", engine: "anyone posts it", detail: "A decision, framed as a market" },
-  { x: 360, name: "Auction", engine: "Uniswap CCA", detail: "Clearing price discovers the floor" },
-  { x: 600, name: "Trading", engine: "1inch Aqua", detail: "YES and NO forecasts compete" },
-  { x: 840, name: "Execution", engine: "TWAP → contract", detail: "The stronger market wins" },
+  { x: 120, name: "Proposal", engine: "anyone posts it", detail: "A decision, framed as a market", logo: null, engineW: 0 },
+  { x: 360, name: "Auction", engine: "Uniswap CCA", detail: "Clearing price discovers the floor", logo: "/logos/uniswap.svg", engineW: 70 },
+  { x: 600, name: "Trading", engine: "1inch Aqua", detail: "YES and NO forecasts compete", logo: "/logos/1inch.svg", engineW: 63 },
+  { x: 840, name: "Resolution", engine: "TWAP oracle", detail: "The stronger forecast wins", logo: null, engineW: 0 },
 ] as const
 
 const YES_SPARK = "M528,168 L548,160 L568,163 L588,150 L608,154 L628,140 L648,143 L672,132"
 const NO_SPARK = "M528,150 L548,155 L568,152 L588,160 L608,158 L628,166 L648,163 L672,172"
 
-const STAGE_MS = 3000
+const STAGE_MS = 1800
 const INK = "var(--foreground)"
 const YES = "var(--data-up)"
 const NO = "var(--destructive)"
@@ -41,7 +41,7 @@ export function DecisionFlow({ className }: { className?: string }) {
   return (
     <div className={className}>
       <svg viewBox="0 0 960 292" className="w-full" role="img"
-        aria-label="A proposal flows through auction, trading and execution">
+        aria-label="A proposal flows through auction, trading and resolution">
 
         {/* Rail */}
         <line x1={48} y1={206} x2={912} y2={206} stroke={INK} strokeWidth={2} opacity={0.14} />
@@ -60,7 +60,7 @@ export function DecisionFlow({ className }: { className?: string }) {
           <motion.circle
             cy={206} r={5} fill="none" stroke={INK} strokeWidth={1.5}
             animate={{ cx: STATIONS[stage].x, r: [5, 14], opacity: [0.6, 0] }}
-            transition={{ cx: spring, r: { duration: 1.4, repeat: Infinity }, opacity: { duration: 1.4, repeat: Infinity } }}
+            transition={{ cx: spring, r: { duration: 1.1, repeat: Infinity }, opacity: { duration: 1.1, repeat: Infinity } }}
           />
         )}
 
@@ -92,11 +92,11 @@ export function DecisionFlow({ className }: { className?: string }) {
           <motion.path d={YES_SPARK} fill="none" stroke={YES} strokeWidth={2}
             initial={false}
             animate={{ pathLength: at(2) ? 1 : 0.12 }}
-            transition={reduced ? { duration: 0 } : { duration: 1.6, ease: "easeOut" }} />
+            transition={reduced ? { duration: 0 } : { duration: 1.1, ease: "easeOut" }} />
           <motion.path d={NO_SPARK} fill="none" stroke={NO} strokeWidth={2}
             initial={false}
             animate={{ pathLength: at(2) ? 1 : 0.12 }}
-            transition={reduced ? { duration: 0 } : { duration: 1.6, ease: "easeOut" }} />
+            transition={reduced ? { duration: 0 } : { duration: 1.1, ease: "easeOut" }} />
           <text x={684} y={135} fontSize={10} fill={YES} className="font-mono">TWAP</text>
         </g>
 
@@ -117,7 +117,7 @@ export function DecisionFlow({ className }: { className?: string }) {
           <rect x={780} y={170} width={100} height={7} fill={INK} opacity={0.7} />
           {at(3) && (
             <text x={830} y={92} textAnchor="middle" fontSize={10} fill={YES} className="font-mono">
-              EXECUTED
+              RESOLVED
             </text>
           )}
         </g>
@@ -129,10 +129,20 @@ export function DecisionFlow({ className }: { className?: string }) {
               opacity={at(i) ? 1 : 0.5} className="font-display">
               {s.name}
             </text>
-            <text x={s.x} y={258} textAnchor="middle" fontSize={10.5} fill={INK} opacity={0.55}
-              className="font-mono">
-              {s.engine}
-            </text>
+            {s.logo ? (
+              <>
+                <image href={s.logo} x={s.x - (s.engineW + 18) / 2} y={248} width={13} height={13} />
+                <text x={s.x - (s.engineW + 18) / 2 + 18} y={258} textAnchor="start" fontSize={10.5}
+                  fill={INK} opacity={0.55} className="font-mono">
+                  {s.engine}
+                </text>
+              </>
+            ) : (
+              <text x={s.x} y={258} textAnchor="middle" fontSize={10.5} fill={INK} opacity={0.55}
+                className="font-mono">
+                {s.engine}
+              </text>
+            )}
             <text x={s.x} y={276} textAnchor="middle" fontSize={11} fill={INK} opacity={0.4}>
               {s.detail}
             </text>

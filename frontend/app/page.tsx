@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
-import { TickerTape } from "@/components/landing/ticker-tape"
 import { PixelAgora } from "@/components/landing/pixel-agora"
 import { DecisionFlow } from "@/components/landing/decision-flow"
 
@@ -17,8 +16,8 @@ export default function HomePage() {
               Markets decide.
             </h1>
             <p className="max-w-md text-lg text-muted-foreground">
-              Proposals become prediction markets. Price picks the outcome.
-              Contracts execute it.
+              Any decision — a treasury move, a protocol change, a new CEO —
+              becomes a prediction market. The price picks the outcome.
             </p>
             <Button asChild variant="ghost" className="w-fit px-0">
               <Link href="/proposals">Explore markets &#8599;</Link>
@@ -29,8 +28,6 @@ export default function HomePage() {
             <PixelAgora className="flex h-full min-h-[520px] w-full items-center justify-center" />
           </div>
         </div>
-
-        <TickerTape />
       </section>
 
       <section className="border-t border-border">
@@ -52,7 +49,7 @@ export default function HomePage() {
         <div className="container mx-auto px-6 py-16 md:py-24">
           <p className="mx-auto mb-12 max-w-2xl text-center font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
             Two conditional markets trade the same decision.
-            The stronger TWAP wins. The contract executes it.
+            The stronger TWAP picks the winner.
           </p>
           <DecisionFlow className="mx-auto max-w-5xl" />
         </div>
