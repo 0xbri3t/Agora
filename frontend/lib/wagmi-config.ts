@@ -2,7 +2,7 @@ import { http, createConfig } from "wagmi"
 import { mainnet, sepolia, type Chain } from "wagmi/chains"
 import { connectorsForWallets } from "@rainbow-me/rainbowkit"
 import { metaMaskWallet, rabbyWallet, injectedWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets"
-import { hederaWithIcon, hederaTestnetWithIcon, anvil } from './custom-chains'
+import { anvil } from './custom-chains'
 
 const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || "00000000000000000000000000000000" // 32 character fallback
 
