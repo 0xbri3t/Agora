@@ -198,8 +198,8 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     userTokenBalance: userTokenBalanceState,
     onchainPrice: clearingPrice6d, // USDC 6d per token (clearing price)
     lastHash,
-    pyusd: usdcAddress,
-    pyusdBalance: usdcBalanceState,
+    collateral: usdcAddress,
+    collateralBalance: usdcBalanceState,
   }
 }
 

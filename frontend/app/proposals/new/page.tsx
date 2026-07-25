@@ -431,7 +431,7 @@ export default function NewProposalPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Note: Initial auction price is read from the selected Pyth feed and scaled to 6 decimals (PyUSD).</p>
+              <p className="text-xs text-muted-foreground">Note: Initial auction price is read from the selected Pyth feed and scaled to 6 decimals (USDC).</p>
               {showErrors && errors.subjectToken && (
                 <p className="text-xs text-destructive">{errors.subjectToken}</p>
               )}

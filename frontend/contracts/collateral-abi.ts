@@ -1,4 +1,4 @@
-export const pyUSD_abi = [
+export const collateral_abi = [
   {
       "type": "function",
       "name": "allowance",

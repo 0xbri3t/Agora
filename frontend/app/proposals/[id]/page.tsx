@@ -35,7 +35,7 @@ function generateProposalData(id: string, hookProposal: any): Proposal {
   const zero = '0x0000000000000000000000000000000000000000'
   const now = Date.now()
 
-  const pyUSD = getContractAddress(11155111, 'COLLATERAL')
+  const collateral = getContractAddress(11155111, 'COLLATERAL')
 
 
   const auctionHistory = []

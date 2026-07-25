@@ -119,7 +119,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const { data: yesAuctionAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "yesAuction" })
   const { data: noAuctionAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "noAuction" })
   const { data: treasuryAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "treasury" })
-  // Onchain minimum required to open (PyUSD, 6d or 18d per contract). Here it's uint256, represents PyUSD amount.
+  // Onchain minimum required to open (USDC, 6d or 18d per contract). Here it's uint256, represents USDC amount.
   const { data: minToOpen } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "minToOpen" })
   const minimumRequired = (typeof minToOpen === "bigint" ? minToOpen : auctionData.minimumRequired)
   const { data: isCancelled } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "state" })
@@ -139,7 +139,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const { data: yesUserBal } = useReadContract({ address: yesTokenAddr as `0x${string}` | undefined, abi: marketToken_abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] })
   const { data: noUserBal } = useReadContract({ address: noTokenAddr as `0x${string}` | undefined, abi: marketToken_abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] })
 
-  // On-chain raised amounts (PyUSD, 6d) from Treasury
+  // On-chain raised amounts (USDC, 6d) from Treasury
   const { data: potYes } = useReadContract({ address: treasuryAddr as `0x${string}` | undefined, abi: treasury_abi, functionName: "potYes" })
   const { data: potNo } = useReadContract({ address: treasuryAddr as `0x${string}` | undefined, abi: treasury_abi, functionName: "potNo" })
 
@@ -265,7 +265,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         const bal: bigint = await publicClient.readContract({ address: noTokenAddr as any, abi: marketToken_abi, functionName: "balanceOf", args: [address] })
         setNoBalOverride(bal ?? 0n)
       }
-      // Treasury raised (PyUSD 6d)
+      // Treasury raised (USDC 6d)
       if (treasuryAddr) {
         const [py, pn] = await Promise.all([
           publicClient.readContract({ address: treasuryAddr as any, abi: treasury_abi, functionName: "potYes" }) as Promise<bigint>,
@@ -295,7 +295,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   useEffect(() => { if (yesBalOverride === undefined && typeof yesUserBal === "bigint") setYesBalOverride(yesUserBal) }, [yesBalOverride, yesUserBal])
   useEffect(() => { if (noBalOverride === undefined && typeof noUserBal === "bigint") setNoBalOverride(noUserBal) }, [noBalOverride, noUserBal])
 
-  // Compute total raised (PyUSD 6d) preferring on-chain Treasury values
+  // Compute total raised (USDC 6d) preferring on-chain Treasury values
   const totalRaised = useMemo(() => {
     if (typeof raisedOverride === "bigint") return raisedOverride
     if (typeof potYes === "bigint" || typeof potNo === "bigint") return ((potYes as bigint) ?? 0n) + ((potNo as bigint) ?? 0n)

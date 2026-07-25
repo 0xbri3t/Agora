@@ -1,6 +1,6 @@
 import { ethers } from "ethers"
 import { useCallback, useMemo, useState } from "react"
-import { pyUSD_abi } from '@/contracts/pyUsd-abi'
+import { collateral_abi } from '@/contracts/collateral-abi'
 import { getContractAddress } from "@/contracts/constants"
 
 import { useAccount, useReadContract, useChainId, usePublicClient } from "wagmi"
@@ -19,30 +19,30 @@ export function useCreateOrder() {
   const chainId = useChainId()
   const publicClient = usePublicClient()
 
-  const pyusdAddress = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
+  const collateralAddress = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
   const [error, setError] = useState<string | null>(null)
   const [lastHash, setLastHash] = useState<string | null>(null)
-  const [pyUSDBalance, setPyUSDBalance] = useState<bigint>(0n)
+  const [collateralBalance, setCollateralBalance] = useState<bigint>(0n)
 
   const refetchOnchain = useCallback(async () => {
     try {
-      if (!publicClient || !address || !pyusdAddress) return
+      if (!publicClient || !address || !collateralAddress) return
       const balance = (await publicClient.readContract({
-        address: pyusdAddress,
-        abi: pyUSD_abi,
+        address: collateralAddress,
+        abi: collateral_abi,
         functionName: 'balanceOf',
         args: [address],
       })) as bigint
-      setPyUSDBalance(balance ?? 0n)
+      setCollateralBalance(balance ?? 0n)
     } catch (e) {
       console.error('Error fetching balance:', e)
     }
-  }, [publicClient, address, pyusdAddress])
+  }, [publicClient, address, collateralAddress])
 
 
   const anyWindow = window as any
   const mintPublic = useCallback(async () => {
-    if (!pyusdAddress) return
+    if (!collateralAddress) return
     if (!anyWindow?.ethereum) {
       setError("No wallet found")
       return
@@ -51,7 +51,7 @@ export function useCreateOrder() {
     try {
       const provider = new ethers.BrowserProvider(anyWindow?.ethereum)
       const signer = await provider.getSigner()
-      const contract = new ethers.Contract(pyusdAddress, pyUSD_abi as any, signer)
+      const contract = new ethers.Contract(collateralAddress, collateral_abi as any, signer)
 
       const tx = await contract.mintPublic()
       setLastHash(tx.hash)
@@ -74,13 +74,13 @@ export function useCreateOrder() {
       console.error('Error minting:', err);
     } finally {
     }
-  }, [pyusdAddress, refetchOnchain])
+  }, [collateralAddress, refetchOnchain])
 
   return {
     mintPublic,
     error,
     lastHash,
-    pyUSDBalance,
+    collateralBalance,
     refetchOnchain,
   }
 }

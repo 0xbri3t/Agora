@@ -5,7 +5,7 @@ const auctionSchema = new mongoose.Schema({
   side: { type: String, enum: ['yes', 'no'], required: true },
   auctionAddress: { type: String, required: true },
   marketToken: { type: String, required: true },
-  pyusd: { type: String, required: true },
+  collateral: { type: String, required: true },
   treasury: { type: String, required: true },
   admin: { type: String, required: true },
   startTime: { type: Number, required: true },

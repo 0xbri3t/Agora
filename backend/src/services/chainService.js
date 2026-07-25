@@ -365,7 +365,7 @@ async function readProposalSnapshot(proposalAddr) {
     yes = {
       auctionAddress: yesAuctionAddr || null,
       marketToken: yesTokenAddr || '0x0000000000000000000000000000000000000000',
-      pyusd: process.env.PYUSD_ADDRESS,
+      collateral: process.env.COLLATERAL_ADDRESS,
       treasury: toAddr(treasury),
       admin: toAddr(admin),
       startTime: startTime,
@@ -385,7 +385,7 @@ async function readProposalSnapshot(proposalAddr) {
     no = {
       auctionAddress: noAuctionAddr || null,
       marketToken: noTokenAddr || '0x0000000000000000000000000000000000000000',
-      pyusd: process.env.PYUSD_ADDRESS,
+      collateral: process.env.COLLATERAL_ADDRESS,
       treasury: toAddr(treasury),
       admin: toAddr(admin),
       startTime: startTime,
@@ -527,7 +527,7 @@ async function upsertProposalAndAuctions(snapshot) {
       // side,                           // do not include in $set to avoid conflict
       auctionAddress: a.auctionAddress,
       marketToken: a.marketToken,
-      pyusd: process.env.PYUSD_ADDRESS,
+      collateral: process.env.COLLATERAL_ADDRESS,
       treasury: a.treasury,
       admin: a.admin,
       startTime: a.startTime,

@@ -38,13 +38,13 @@ export default function ProposalsPage() {
   const { proposals, isLoading, error, refetch } = useGetAllProposals()
   const { isConnected, address } = useAccount()
   // const router = useRouter()
-  const { mintPublic, pyUSDBalance, error: mintError, refetchOnchain } = useCreateOrder()
+  const { mintPublic, collateralBalance, error: mintError, refetchOnchain } = useCreateOrder()
   const { deleteProposal, pending, error: deleteError } = useDeleteProposal()
   const { toast } = useToast()
 
   // Always fetch proposals on-chain via hook (works with or without a connected wallet)
 
-  // Refresh PYUSD balance every 5 seconds if connected
+  // Refresh USDC balance every 5 seconds if connected
   useEffect(() => {
     if (!isConnected) return;
     refetchOnchain(); // Fetch balance immediately on mount
@@ -132,7 +132,7 @@ export default function ProposalsPage() {
           {isConnected ? (
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <span className="font-mono text-sm tabular-nums text-muted-foreground" id="collateral-balance">
-                {Number(pyUSDBalance) / 1e6} USDC
+                {Number(collateralBalance) / 1e6} USDC
               </span>
               <Button size="sm" variant="outline" onClick={mintPublic}>
                 Mint USDC

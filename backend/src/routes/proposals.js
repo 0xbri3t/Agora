@@ -568,7 +568,7 @@ router.post('/:id/webhook/auctions', async (req, res) => {
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
 
     const allowed = [
-      'auctionAddress','marketToken','pyusd','treasury','admin',
+      'auctionAddress','marketToken','collateral','treasury','admin',
       'startTime','endTime','priceStart','minToOpen','cap',
       'currentPrice','tokensSold','maxTokenCap','minTokenCap',
       'finalized','isValid','isCanceled'
@@ -645,7 +645,7 @@ router.post('/:id/webhook/auctions', async (req, res) => {
         side,
         auctionAddress: data.auctionAddress ?? undefined,
         marketToken: data.marketToken ?? undefined,
-        pyusd: data.pyusd ?? undefined,
+        collateral: data.collateral ?? undefined,
         treasury: data.treasury ?? undefined,
         admin: data.admin ?? undefined,
         startTime: data.startTime ?? undefined,

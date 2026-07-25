@@ -49,7 +49,7 @@ const proposalSchema = new mongoose.Schema({
         type: new mongoose.Schema({
           auctionAddress: String,
           marketToken: String,
-          pyusd: String,
+          collateral: String,
           treasury: String,
           admin: String,
           startTime: Number,
@@ -71,7 +71,7 @@ const proposalSchema = new mongoose.Schema({
         type: new mongoose.Schema({
           auctionAddress: String,
           marketToken: String,
-          pyusd: String,
+          collateral: String,
           treasury: String,
           admin: String,
           startTime: Number,
