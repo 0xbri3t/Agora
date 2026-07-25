@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { WagmiProvider, useAccount } from 'wagmi'
+import { WagmiProvider, useAccount, useSwitchChain } from 'wagmi'
 import { AuthProvider, OpenfortProvider, useOpenfortCore } from '@openfort/react'
 import { useEthereumEmbeddedWallet } from '@openfort/react/ethereum'
 import { AccountTypeEnum } from '@openfort/openfort-js'
@@ -43,9 +43,17 @@ function FeeSponsorshipFix() {
   return null
 }
 
-/** Fork mode only: give the embedded EOA gas money straight from anvil. */
+/** Fork mode only: pin the session to anvil and give the EOA gas money. */
 function AnvilFaucet() {
   const { address, chainId } = useAccount()
+  const { switchChain } = useSwitchChain()
+
+  // A session persisted from a Sepolia run stays on 11155111 and every tx
+  // routes through Openfort's API instead of the fork — drag it back.
+  useEffect(() => {
+    if (!OPENFORT_LOCAL || !address || chainId === 31337) return
+    try { switchChain({ chainId: 31337 }) } catch {}
+  }, [address, chainId, switchChain])
 
   useEffect(() => {
     if (!OPENFORT_LOCAL || !address || chainId !== 31337) return

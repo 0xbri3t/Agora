@@ -12,6 +12,12 @@ import type { Config } from 'wagmi'
 export async function getEthersSigner(config: Config): Promise<ethers.JsonRpcSigner> {
   const client = await getConnectorClient(config)
 
+  // In fork mode a stale session left on Sepolia would sign against the wrong
+  // chain (and detour through Openfort's API). Fail loud instead.
+  if (process.env.NEXT_PUBLIC_OPENFORT_LOCAL === '1' && client.chain.id !== 31337) {
+    throw new Error(`Local fork mode: wallet is on chain ${client.chain.id}, expected 31337 — reload the page`)
+  }
+
   // On the local fork, Openfort's embedded provider forwards eth_estimateGas
   // to its own API, which rejects chain 31337 with a 400 — the EOA signs and
   // broadcasts locally, so the estimate is the only backend round trip. Route
