@@ -112,6 +112,15 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
       throw new Error("no wallet")
     }
 
+    // The auction only exists on the app's chain: a wallet signing against a
+    // different network fails estimateGas with "missing revert data".
+    const walletChain = Number((await signer.provider.getNetwork()).chainId)
+    if (walletChain !== chainId) {
+      const msg = `Wrong network: wallet is on chain ${walletChain}, switch it to chain ${chainId}`
+      setError(msg)
+      throw new Error(msg)
+    }
+
     if (!publicClient) { setError("No client"); throw new Error("no client") }
 
     // Preflight: auction still open, bid above clearing, budget available
