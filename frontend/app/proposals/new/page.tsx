@@ -48,6 +48,12 @@ export default function NewProposalPage() {
 
   const isUint = (v: string) => /^\d+$/.test(v)
 
+  // On the local fork durations are entered in MINUTES so a full lifecycle
+  // demo fits in one take; everywhere else the unit is hours.
+  const IS_FORK = process.env.NEXT_PUBLIC_OPENFORT_LOCAL === '1'
+  const DURATION_UNIT = IS_FORK ? 'Minutes' : 'Hours'
+  const DURATION_UNIT_SECONDS = IS_FORK ? 60 : 3600
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -90,15 +96,15 @@ export default function NewProposalPage() {
     else if (formData.description.length > MAX_DESC) next.description = `Description is too long (max ${MAX_DESC} characters).`
 
     if (!formData.auctionDuration || Number(formData.auctionDuration) <= 0 || !isUint(formData.auctionDuration)) {
-      next.auctionDuration = "Auction duration must be a positive whole number of hours."
-    } else if (Number(formData.auctionDuration) > 168) {
-      next.auctionDuration = "Auction duration cannot exceed 168 hours (7 days)."
+      next.auctionDuration = `Auction duration must be a positive whole number of ${DURATION_UNIT.toLowerCase()}.`
+    } else if (Number(formData.auctionDuration) * DURATION_UNIT_SECONDS > 7 * 86400) {
+      next.auctionDuration = "Auction duration cannot exceed 7 days."
     }
 
     if (!formData.liveDuration || Number(formData.liveDuration) <= 0 || !isUint(formData.liveDuration)) {
-      next.liveDuration = "Live duration must be a positive whole number of hours."
-    } else if (Number(formData.liveDuration) > 720) {
-      next.liveDuration = "Live duration cannot exceed 720 hours (30 days)."
+      next.liveDuration = `Live duration must be a positive whole number of ${DURATION_UNIT.toLowerCase()}.`
+    } else if (Number(formData.liveDuration) * DURATION_UNIT_SECONDS > 30 * 86400) {
+      next.liveDuration = "Live duration cannot exceed 30 days."
     }
 
     if (!formData.subjectToken) next.subjectToken = "Please select a token."
@@ -220,8 +226,8 @@ export default function NewProposalPage() {
       const tx = await contract.createProposal(
         formData.title,
         formData.description,
-        BigInt(formData.auctionDuration) * BigInt(3600),
-        BigInt(formData.liveDuration) * BigInt(3600),
+        BigInt(formData.auctionDuration) * BigInt(DURATION_UNIT_SECONDS),
+        BigInt(formData.liveDuration) * BigInt(DURATION_UNIT_SECONDS),
         formData.subjectToken,
         to18(formData.minToOpen),
         to18(formData.maxCap),
@@ -347,7 +353,7 @@ export default function NewProposalPage() {
             {/* Auction + Live durations */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="auctionDuration" className="text-base">Auction Duration (Hours) *</Label>
+                <Label htmlFor="auctionDuration" className="text-base">Auction Duration ({DURATION_UNIT}) *</Label>
                 <Input
                   id="auctionDuration"
                   type="number"
@@ -368,7 +374,7 @@ export default function NewProposalPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="liveDuration" className="text-base">Live Duration (Hours) *</Label>
+                <Label htmlFor="liveDuration" className="text-base">Live Duration ({DURATION_UNIT}) *</Label>
                 <Input
                   id="liveDuration"
                   type="number"

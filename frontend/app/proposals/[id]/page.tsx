@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { ProposalHeader } from "@/components/proposal-header"
+import { DemoControls } from "@/components/demo-controls"
 import { AuctionView } from "@/components/auction-view"
 import { MarketView } from "@/components/market-view"
 import { AuctionTradePanel } from "@/components/auction-trade-panel"
@@ -268,6 +269,10 @@ export default function ProposalDetailPage({ params }: PageProps) {
       <div className="grid lg:grid-cols-3 gap-6 items-start">
         <div className="lg:col-span-3">
           <ProposalHeader proposal={proposal} chainId={chainId} />
+        </div>
+
+        <div className="lg:col-span-3">
+          <DemoControls proposalId={id} admin={(proposal as any).admin} />
         </div>
 
         {isResolvedView ? (
