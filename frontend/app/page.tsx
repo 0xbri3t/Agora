@@ -4,6 +4,9 @@ import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
 import { PixelAgora } from "@/components/landing/pixel-agora"
 import { DecisionFlow } from "@/components/landing/decision-flow"
 import { PartnerLoop } from "@/components/landing/partner-loop"
+import DecryptedText from "@/components/ui/decrypted-text"
+
+const SCRAMBLE = "!<>-_\\/[]{}—=+*^?#01"
 
 export default function HomePage() {
   return (
@@ -12,7 +15,14 @@ export default function HomePage() {
         <div className="container mx-auto grid flex-1 grid-cols-1 gap-8 px-6 py-10 md:py-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-2">
           <div className="flex flex-col justify-center gap-6">
             <h1 className="max-w-xl font-display text-[clamp(3rem,8vw,7rem)] leading-[0.95] text-foreground">
-              Markets decide.
+              <DecryptedText
+                text="Markets decide."
+                animateOn="view"
+                sequential
+                speed={55}
+                characters={SCRAMBLE}
+                encryptedClassName="opacity-40"
+              />
             </h1>
             <p className="max-w-md text-lg text-muted-foreground">
               Any decision — a treasury move, a protocol change, a new CEO —
@@ -43,7 +53,14 @@ export default function HomePage() {
         <div className="container mx-auto grid grid-cols-1 gap-10 px-6 py-16 md:py-24 lg:grid-cols-[1fr_minmax(0,420px)] lg:items-center lg:gap-16">
           <div className="flex flex-col gap-4">
             <p className="font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
-              Live conditional markets, on chain right now.
+              <DecryptedText
+                text="Live conditional markets, on chain right now."
+                animateOn="view"
+                speed={40}
+                maxIterations={14}
+                characters={SCRAMBLE}
+                encryptedClassName="opacity-40"
+              />
             </p>
             <p className="max-w-md text-muted-foreground">
               Every proposal opens a YES and a NO market. These are trading as
@@ -57,8 +74,14 @@ export default function HomePage() {
       <section className="border-t border-border">
         <div className="container mx-auto px-6 py-16 md:py-24">
           <p className="mx-auto mb-12 max-w-2xl text-center font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
-            Two conditional markets trade the same decision.
-            The stronger TWAP picks the winner.
+            <DecryptedText
+              text="Two conditional markets trade the same decision. The stronger TWAP picks the winner."
+              animateOn="view"
+              speed={40}
+              maxIterations={14}
+              characters={SCRAMBLE}
+              encryptedClassName="opacity-40"
+            />
           </p>
           <DecisionFlow className="mx-auto max-w-5xl" />
         </div>
