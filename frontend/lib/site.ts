@@ -5,15 +5,12 @@ export type Author = {
 }
 
 export const site = {
-  website: "https://agora.market",
-  // Adjust to your preferred docs URL; currently points to the repo docs folder
-  docs: "https://github.com/bri3t/Futarchy-DeFi-Protocol/",
+  docs: "https://github.com/0xbri3t/Agora",
   authors: [
     {
       name: "Arnau Briet",
-      github: "https://github.com/bri3t",
-      // Assumption based on naming convention; update if different
-      linkedin: "https://www.linkedin.com/in/arnau-briet-roura/",
+      github: "https://github.com/0xbri3t",
+      linkedin: "https://www.linkedin.com/in/arnau-briet/",
     },
   ] as Author[],
 }

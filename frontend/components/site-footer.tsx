@@ -18,16 +18,8 @@ export function SiteFooter() {
     <footer className="border-t border-border bg-transparent">
       <div className="container mx-auto px-4 py-8 grid gap-8 md:grid-cols-3">
         <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground">Agora</h3>
-          <Link
-            href={site.website}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-foreground hover:text-primary transition-colors"
-          >
-            {site.website.replace(/^https?:\/\//, "")}
-          </Link>
-          <p className="text-sm text-muted-foreground">Futarchy as a Service</p>
+          <h3 className="text-sm font-medium text-muted-foreground">Agora</h3>
+          <p className="text-foreground">Markets decide.</p>
         </div>
 
         <div className="space-y-2">
