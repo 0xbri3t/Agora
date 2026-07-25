@@ -166,6 +166,8 @@ Market bootstrap runs on **Uniswap's Continuous Clearing Auction** (Liquidity La
 | Piece | Where |
 |---|---|
 | CCA factory (Uniswap, official) | [`0x000000001F26a0044BaA66024e7b6599c61963F8`](https://sepolia.etherscan.io/address/0x000000001F26a0044BaA66024e7b6599c61963F8) |
+| ProposalManager (CCA era, live) | [`0x8C069587f3626A0d31D202e93de446871Ec1EdF5`](https://sepolia.etherscan.io/address/0x8C069587f3626A0d31D202e93de446871Ec1EdF5) |
+| Demo proposal #1 + its two live CCAs | [`0xffBe…08EC`](https://sepolia.etherscan.io/address/0xffBe2267865D498bCf2024Db0af87F84Ba1e08EC) — YES [`0x2fF9…fB92`](https://sepolia.etherscan.io/address/0x2fF9A42f5d94876EB1b8CbBD67011C57CdBffB92) / NO [`0xa5bA…0a8F`](https://sepolia.etherscan.io/address/0xa5bAa2c688ac648BF012CB9C7d6BE7611a650a8F) |
 | Auction creation + parameters | `blockend/src/core/Proposal.sol` — `initialize()` / `_buildAuctionParameters()` / `_buildSteps()` |
 | Settlement (graduate/cancel) | `blockend/src/core/Proposal.sol` — `settleAuctions()` |
 | Integration interface | `blockend/src/interfaces/ICCA.sol` |
@@ -190,7 +192,7 @@ Agora's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**: m
 | LimitSwapVMRouter (our deployment) | [`0x4CF2713D08C5E439409b56efA4027F25EB0F6431`](https://sepolia.etherscan.io/address/0x4CF2713D08C5E439409b56efA4027F25EB0F6431) | Official SwapVM code; the canonical Sepolia router lacks limit opcodes |
 | AgoraQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
 | MockUSDC (demo) | [`0x34ad23A27Ae8A562928234D4415eD7225a44bB2E`](https://sepolia.etherscan.io/address/0x34ad23A27Ae8A562928234D4415eD7225a44bB2E) | 6-decimals demo collateral |
-| ProposalManager | [`0xf9E1997Eb57845AC72A280d7317485006bAABB33`](https://sepolia.etherscan.io/address/0xf9E1997Eb57845AC72A280d7317485006bAABB33) | Agora governance stack (Pyth-priced proposals) |
+| ProposalManager | [`0x8C069587f3626A0d31D202e93de446871Ec1EdF5`](https://sepolia.etherscan.io/address/0x8C069587f3626A0d31D202e93de446871Ec1EdF5) | Agora governance stack (Pyth-priced proposals) |
 
 ### Live demo transactions (Sepolia)
 
