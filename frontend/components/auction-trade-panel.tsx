@@ -36,6 +36,8 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
   const amountInputRef = useRef<HTMLInputElement | null>(null)
   const [amountError, setAmountError] = useState<string | null>(null)
   const [isClaiming, setIsClaiming] = useState(false)
+  // User's price cap (USDC per token). Empty = default 2x current clearing.
+  const [maxPriceInput, setMaxPriceInput] = useState<string>("")
 
   // Oracle price is scaled to 6 decimals (USDC, 6d)
   const currentPrice = useMemo(() => {
@@ -51,11 +53,21 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
   const insufficientBalance = amount6d > (collateralBalance ?? 0n)
   const invalidAmount = amount6d <= 0n
 
-  const isDisabled = !isConnected || !amount || invalidAmount || isApproving || isBuying || !proposalAddress || insufficientBalance
+  // Parse the optional user cap; invalid text disables the bid
+  const maxPrice6d = useMemo(() => {
+    if (!maxPriceInput.trim()) return undefined
+    try {
+      const v = parseUnits(maxPriceInput, 6)
+      return v > 0n ? v : undefined
+    } catch { return undefined }
+  }, [maxPriceInput])
+  const invalidMaxPrice = maxPriceInput.trim() !== "" && maxPrice6d === undefined
+
+  const isDisabled = !isConnected || !amount || invalidAmount || isApproving || isBuying || !proposalAddress || insufficientBalance || invalidMaxPrice
   const handleBid = async (): Promise<boolean> => {
     if (isDisabled) return false
     try {
-      await approveAndBuy()
+      await approveAndBuy(maxPrice6d)
       toast.success("Liquidity added!", { description: `${amount} USDC for ${estimatedTokens} ${selectedMarket} tokens` })
       setAmount("")
       return true
@@ -316,18 +328,37 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
               <span className="text-muted-foreground">Current Price (USDC, 6d):</span>
               <span className="font-mono">${currentPrice.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Your Max Price (2× current):</span>
-              <span className="font-mono">${(currentPrice * 2).toFixed(2)}</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Your Max Price:</span>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  placeholder={(currentPrice * 2).toFixed(2)}
+                  value={maxPriceInput}
+                  onChange={(e) => setMaxPriceInput(e.target.value)}
+                  disabled={!isConnected || isApproving || isBuying}
+                  className="h-7 w-28 text-right font-mono no-spin"
+                />
+              </div>
             </div>
+            {invalidMaxPrice && (
+              <div className="text-xs text-destructive text-right">Invalid max price.</div>
+            )}
+            {maxPrice6d !== undefined && Number(maxPrice6d) / 1e6 <= currentPrice && (
+              <div className="text-xs text-amber-600 dark:text-amber-400 text-right">
+                Below the current price — this bid would never fill.
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Estimated Tokens:</span>
               <span className="font-mono">{Number(estimatedTokens).toFixed(6)}</span>
             </div>
             <p className="text-xs text-muted-foreground">
               Uniform-price auction: you commit a USDC budget capped at your max
-              price. Everyone pays the same final clearing price at close — your
-              exact tokens are known then, and claimed after settlement.
+              price (blank = 2× current). The max only bounds participation —
+              everyone pays the same final clearing price at close, and your
+              exact tokens are claimed after settlement.
             </p>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Your t{selectedMarket} Balance:</span>

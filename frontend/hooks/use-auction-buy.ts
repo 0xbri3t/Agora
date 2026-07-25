@@ -6,7 +6,7 @@ import { getEthersSigner } from "@/lib/signer"
 import { parseUnits } from "viem"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
-import { cca_abi, permit2_abi, PERMIT2_ADDRESS, q96ToPrice6d, snapToTick } from "@/contracts/cca-abi"
+import { cca_abi, permit2_abi, PERMIT2_ADDRESS, q96ToPrice6d, price6dToQ96, snapToTick } from "@/contracts/cca-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { getContractAddress } from "@/contracts/constants"
 
@@ -94,7 +94,8 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     return () => clearInterval(id)
   }, [publicClient, auctionAddress, refetchOnchain])
 
-  const doApproveAndBuy = useCallback(async () => {
+  /** @param maxPrice6d Optional user cap (USDC 6d per token). Defaults to 2x current clearing. */
+  const doApproveAndBuy = useCallback(async (maxPrice6d?: bigint) => {
     setError(null)
     if (!address) { setError("Connect wallet"); throw new Error("Connect wallet") }
     if (!usdcAddress) { setError("Token not configured for this network"); throw new Error("no usdc") }
@@ -135,9 +136,18 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     if (blockNow >= endBlock) { setError('Auction ended'); throw new Error('Auction ended') }
     if (budget > (usdcNow ?? 0n)) { setError('Insufficient USDC balance'); throw new Error('Insufficient USDC') }
 
-    // Max price: 2x current clearing, snapped down to the tick grid, and at
-    // least one tick above clearing so the bid is accepted.
-    let maxPriceQ96 = snapToTick(clearingNow * 2n, tickSpacing)
+    // Max price: the user's cap when given, else 2x current clearing. Snapped
+    // down to the tick grid, and at least one tick above clearing so the bid
+    // is accepted. The max only bounds participation — everyone pays the
+    // final clearing price.
+    if (typeof maxPrice6d === "bigint" && price6dToQ96(maxPrice6d) <= clearingNow) {
+      const nowUsdc = (Number(q96ToPrice6d(clearingNow)) / 1e6).toFixed(2)
+      const msg = `Max price is below the current clearing price ($${nowUsdc}) — the bid would never fill`
+      setError(msg)
+      throw new Error(msg)
+    }
+    const rawMaxQ96 = typeof maxPrice6d === "bigint" ? price6dToQ96(maxPrice6d) : clearingNow * 2n
+    let maxPriceQ96 = snapToTick(rawMaxQ96, tickSpacing)
     if (maxPriceQ96 <= clearingNow) maxPriceQ96 = snapToTick(clearingNow, tickSpacing) + tickSpacing
 
     // Permit2 flow: USDC -> Permit2 (ERC20 approve) + Permit2 allowance -> auction
