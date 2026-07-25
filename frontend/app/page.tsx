@@ -57,7 +57,7 @@ export default function HomePage() {
             </div>
 
             <p className="text-xl mt-16 mb-10 md:text-2xl text-muted-foreground  leading-relaxed w-full  md:max-w-6xl">
-              FutarFi combines prediction markets with decentralized governance. Create proposals, open prediction markets, and execute outcomes trustlessly. Let markets decide the future of your organization through decentralized governance
+              Agora combines prediction markets with decentralized governance. Create proposals, open prediction markets, and execute outcomes trustlessly. Let markets decide the future of your organization through decentralized governance
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 pt-6">

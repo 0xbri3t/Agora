@@ -24,7 +24,7 @@ contract MarketTokenPauseRedeemCapTest is Test {
 
         vm.prank(owner);
         token = new MarketToken(
-            "FutarFi YES #1",
+            "Agora YES #1",
             "YES-1",
             owner,     // Ownable
             minter,    // initial minter

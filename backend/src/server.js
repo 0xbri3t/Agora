@@ -115,7 +115,7 @@ app.use('/api/chain', chainRouter); // read-only info (address, chainId)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'FutarFi API Documentation'
+  customSiteTitle: 'Agora API Documentation'
 }));
 
 // Redirect root to API documentation

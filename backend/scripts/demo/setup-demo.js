@@ -32,12 +32,12 @@ async function main() {
   if (!cfg.routerAddress) {
     console.log('deploying LimitSwapVMRouter...');
     const router = await deployFromArtifact(maker, 'LimitSwapVMRouter.sol/LimitSwapVMRouter.json',
-      [AQUA, WETH, makerAddr, 'FutarFi SwapVM', '1.0']);
+      [AQUA, WETH, makerAddr, 'Agora SwapVM', '1.0']);
     saveState({ router: await router.getAddress() });
   }
   if (!cfg.builderAddress) {
-    console.log('deploying FutarFiQuoteBuilder...');
-    const builder = await deployFromArtifact(maker, 'FutarFiQuoteBuilder.sol/FutarFiQuoteBuilder.json', [AQUA]);
+    console.log('deploying AgoraQuoteBuilder...');
+    const builder = await deployFromArtifact(maker, 'AgoraQuoteBuilder.sol/AgoraQuoteBuilder.json', [AQUA]);
     saveState({ builder: await builder.getAddress() });
   }
   if (!cfg.usdcAddress) {
@@ -47,7 +47,7 @@ async function main() {
   }
 
   console.log('deploying demo YES token...');
-  const yes = await deployFromArtifact(maker, 'MockOutcomeToken.sol/MockOutcomeToken.json', ['FutarFi YES', 'tYES']);
+  const yes = await deployFromArtifact(maker, 'MockOutcomeToken.sol/MockOutcomeToken.json', ['Agora YES', 'tYES']);
   saveState({ yes: await yes.getAddress() });
 
   cfg = getCfg();

@@ -7,7 +7,7 @@ const { computeTwap, pushOnce } = require('../src/services/twapPusherService');
 jest.setTimeout(240000);
 
 const MONGO_TEST_URI = process.env.MONGODB_TEST_URI
-  || 'mongodb://admin:password123@localhost:27017/futarfi_twap_test?authSource=admin';
+  || 'mongodb://admin:password123@localhost:27017/agora_twap_test?authSource=admin';
 
 describe('computeTwap (pure)', () => {
   test('null when no fills', () => {

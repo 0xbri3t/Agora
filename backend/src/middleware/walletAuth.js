@@ -13,7 +13,7 @@ const verifySignedMessage = ({ address, signature, message, timestamp, ttlMs }) 
     return { ok: false, error: 'Message timestamp too old. Please sign a new message.' };
   }
 
-  const expectedMessage = `FutarFi Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
+  const expectedMessage = `Agora Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
   if (message !== expectedMessage) {
     return { ok: false, error: 'Invalid message format', expected: expectedMessage };
   }
@@ -72,7 +72,7 @@ const verifyWalletSignature = async (req, res, next) => {
  */
 const generateAuthMessage = (address) => {
   const timestamp = Date.now();
-  const message = `FutarFi Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
+  const message = `Agora Authentication\nAddress: ${address}\nTimestamp: ${timestamp}`;
   return { message, timestamp };
 };
 

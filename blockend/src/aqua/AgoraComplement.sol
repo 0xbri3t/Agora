@@ -13,7 +13,7 @@ import {SwapQuery, SwapRegisters} from "@1inch-swap-vm/src/libs/VM.sol";
 ///      time. Deterministic, stateless and identical for quote (static) and swap
 ///      paths — as required by the Extruction security contract. Immutable: no
 ///      storage, no owner, no external calls.
-contract FutarFiComplement is IExtruction, IStaticExtruction {
+contract AgoraComplement is IExtruction, IStaticExtruction {
     /// @notice One full unit of probability in USDC 6d (YES + NO must not exceed it)
     uint256 public constant ONE_USDC = 1_000000;
 

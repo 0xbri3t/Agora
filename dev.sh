@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FutarFi local dev orchestrator
+# Agora local dev orchestrator
 #
 #   ./dev.sh            start full local stack (mongo + anvil + contracts + backend + frontend)
 #   ./dev.sh stop       stop everything
@@ -8,7 +8,7 @@
 #   ./dev.sh reset      stop + wipe mongo data (fresh DB next start)
 #
 # Services & ports:
-#   MongoDB   localhost:27017  (docker: futarfi-mongo)
+#   MongoDB   localhost:27017  (docker: agora-mongo)
 #   Anvil     localhost:8545   (chain id 31337)
 #   Backend   localhost:3001   (nodemon, native)
 #   Frontend  localhost:3000   (next dev, native)
@@ -101,7 +101,7 @@ cmd_start() {
 
   # 5. Backend (native nodemon; env overrides beat .env values via dotenv semantics)
   [ -d "$ROOT/backend/node_modules" ] || ( info "installing backend deps ..." && cd "$ROOT/backend" && npm install )
-  MONGODB_URI="mongodb://admin:password123@localhost:27017/futarfi?authSource=admin" \
+  MONGODB_URI="mongodb://admin:password123@localhost:27017/agora?authSource=admin" \
   RPC_URL="http://127.0.0.1:8545" \
   RPC_WS_URL="ws://127.0.0.1:8545" \
   CHAIN_ID="31337" \
@@ -114,7 +114,7 @@ cmd_start() {
   wait_for frontend http://localhost:3000 120
 
   echo ""
-  green "════════════ FutarFi local stack up ════════════"
+  green "════════════ Agora local stack up ════════════"
   echo "  Frontend   http://localhost:3000"
   echo "  API        http://localhost:3001  (docs: /api-docs)"
   echo "  Anvil RPC  http://127.0.0.1:8545  (chain 31337)"
@@ -157,8 +157,8 @@ cmd_status() {
   for name in anvil backend frontend; do
     if pid_alive "$name"; then green "$name: running (pid $(cat "$PID_DIR/$name.pid"))"; else red "$name: stopped"; fi
   done
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^futarfi-mongo$'; then
-    green "mongodb: running (docker futarfi-mongo)"
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^agora-mongo$'; then
+    green "mongodb: running (docker agora-mongo)"
   else
     red "mongodb: stopped"
   fi

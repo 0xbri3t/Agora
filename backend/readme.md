@@ -1,7 +1,7 @@
-# FutarFi DeFi Protocol API
+# Agora DeFi Protocol API
 
 ## Overview
-Backend API for the FutarFi DeFi Protocol with real-time WebSocket support, limit/market orders, and comprehensive market data.
+Backend API for the Agora DeFi Protocol with real-time WebSocket support, limit/market orders, and comprehensive market data.
 
 ## Features
 
@@ -104,7 +104,7 @@ curl -X POST http://localhost:3001/api/auth/message \
 Response:
 ```json
 {
-  "message": "FutarFi Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
+  "message": "Agora Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
   "timestamp": 1698765432000,
   "instructions": "Sign this message with your wallet"
 }
@@ -119,7 +119,7 @@ Include authentication data in request body for protected endpoints:
 {
   "address": "0x1234...",
   "signature": "0xabcdef...",
-  "message": "FutarFi Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
+  "message": "Agora Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
   "timestamp": 1698765432000,
   
   "orderType": "buy",
@@ -136,7 +136,7 @@ Include authentication data in request body for protected endpoints:
 {
   "address": "0x1234...",
   "signature": "0xabcdef...",
-  "message": "FutarFi Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
+  "message": "Agora Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
   "timestamp": 1698765432000,
   
   "orderType": "buy|sell",
@@ -151,7 +151,7 @@ Include authentication data in request body for protected endpoints:
 {
   "address": "0x1234...",
   "signature": "0xabcdef...",
-  "message": "FutarFi Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
+  "message": "Agora Authentication\nAddress: 0x1234...\nTimestamp: 1698765432000",
   "timestamp": 1698765432000,
   
   "orderType": "buy|sell",
@@ -387,7 +387,7 @@ curl -X POST http://localhost:3001/api/orderbooks/111/approve/orders \
   -d '{
     "address": "0x1234567890123456789012345678901234567890",
     "signature": "0xYOUR_SIGNATURE_HERE",
-    "message": "FutarFi Authentication\nAddress: 0x1234567890123456789012345678901234567890\nTimestamp: 1698765432000",
+    "message": "Agora Authentication\nAddress: 0x1234567890123456789012345678901234567890\nTimestamp: 1698765432000",
     "timestamp": 1698765432000,
     "orderType": "buy",
     "orderExecution": "limit",

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Aqua-era local deploy: the local anvil is a FORK of Sepolia, so the 1inch Aqua
 # stack (aqua core, router, builder) and the MockUSDC collateral already exist.
-# This script deploys the FutarFi governance stack on top, mints collateral to
+# This script deploys the Agora governance stack on top, mints collateral to
 # the dev accounts, and syncs addresses to frontend + backend.
 
 set -euo pipefail
@@ -12,8 +12,8 @@ ANVIL0=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 ANVIL1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 COLLATERAL=0x34ad23A27Ae8A562928234D4415eD7225a44bB2E   # MockUSDC (Sepolia, present in fork)
 
-echo "Deploying FutarFi stack to local Sepolia fork..."
-DEPLOY_OUTPUT=$(DEPLOYER_PK=$ANVIL0_PK forge script script/DeployFutarFiSepolia.s.sol --rpc-url $RPC --broadcast 2>&1) || {
+echo "Deploying Agora stack to local Sepolia fork..."
+DEPLOY_OUTPUT=$(DEPLOYER_PK=$ANVIL0_PK forge script script/DeployAgoraSepolia.s.sol --rpc-url $RPC --broadcast 2>&1) || {
   echo "Deployment failed!"; echo "$DEPLOY_OUTPUT"; exit 1
 }
 
@@ -52,4 +52,4 @@ else
   echo "Warning: $ENV_FILE not found; skipping .env update."
 fi
 
-echo "Done. FutarFi (fork) ready — Aqua stack available at Sepolia addresses."
+echo "Done. Agora (fork) ready — Aqua stack available at Sepolia addresses."

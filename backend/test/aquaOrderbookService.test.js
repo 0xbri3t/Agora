@@ -6,7 +6,7 @@ const { bootAquaFork, teardown } = require('./helpers/aquaForkHarness');
 jest.setTimeout(240000);
 
 const MONGO_TEST_URI = process.env.MONGODB_TEST_URI
-  || 'mongodb://admin:password123@localhost:27017/futarfi_aqua_test?authSource=admin';
+  || 'mongodb://admin:password123@localhost:27017/agora_aqua_test?authSource=admin';
 
 const LOT_YES = 10n * 10n ** 18n;
 const LOT_USDC = 4_000000n;

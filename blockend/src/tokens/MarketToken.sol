@@ -25,7 +25,7 @@ contract MarketToken is ERC20Permit, ERC20Pausable, ERC20Capped, Ownable, IMarke
     event MinterUpdated(address indexed oldMinter, address indexed newMinter);
     event FinalizedAsLoser(address indexed by);
 
-    /// @param _name   e.g., "FutarFi YES #123 (#number is the ID of the proposal)"
+    /// @param _name   e.g., "Agora YES #123 (#number is the ID of the proposal)"
     /// @param _symbol e.g., "YES-123"
     /// @param _owner  Proposal address
     /// @param _minter DutchAuction

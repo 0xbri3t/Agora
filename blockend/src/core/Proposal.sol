@@ -150,14 +150,14 @@ contract Proposal is Ownable, IProposal {
 
         // Deploy market tokens for YES and NO (temporary minter = this Proposal, updated after auctions are deployed)
         yesToken = new MarketToken(
-            string.concat("FutarFi tYES #", Strings.toString(id)),
+            string.concat("Agora tYES #", Strings.toString(id)),
             string.concat("tYES-", Strings.toString(id)),
             address(this),
             address(this),
             maxCap
         );
         noToken = new MarketToken(
-            string.concat("FutarFi tNO #", Strings.toString(id)),
+            string.concat("Agora tNO #", Strings.toString(id)),
             string.concat("tNO-", Strings.toString(id)),
             address(this),
             address(this),

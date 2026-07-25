@@ -3,10 +3,10 @@ pragma solidity 0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
 import {LimitSwapVMRouter} from "@1inch-swap-vm/src/routers/LimitSwapVMRouter.sol";
-import {FutarFiQuoteBuilder} from "../src/aqua/FutarFiQuoteBuilder.sol";
+import {AgoraQuoteBuilder} from "../src/aqua/AgoraQuoteBuilder.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 
-/// @notice Deploys the FutarFi Aqua stack to Sepolia:
+/// @notice Deploys the Agora Aqua stack to Sepolia:
 ///         our own LimitSwapVMRouter (the canonical Sepolia SwapVM router is
 ///         AquaSwapVMRouter, which lacks the LimitSwap opcodes), the quote
 ///         builder, and a demo MockUSDC. Aqua core itself is 1inch's live
@@ -20,9 +20,9 @@ contract DeployAquaStack is Script {
         vm.startBroadcast(pk);
 
         LimitSwapVMRouter router = new LimitSwapVMRouter(
-            AQUA_SEPOLIA, WETH_SEPOLIA, vm.addr(pk), "FutarFi SwapVM", "1.0"
+            AQUA_SEPOLIA, WETH_SEPOLIA, vm.addr(pk), "Agora SwapVM", "1.0"
         );
-        FutarFiQuoteBuilder builder = new FutarFiQuoteBuilder(AQUA_SEPOLIA);
+        AgoraQuoteBuilder builder = new AgoraQuoteBuilder(AQUA_SEPOLIA);
         MockUSDC usdc = new MockUSDC();
 
         vm.stopBroadcast();

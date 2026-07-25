@@ -1,4 +1,4 @@
-// Shared test harness: anvil fork of Sepolia + FutarFi Aqua stack deployment.
+// Shared test harness: anvil fork of Sepolia + Agora Aqua stack deployment.
 // Comments simple in English
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -68,10 +68,10 @@ async function bootAquaFork(port) {
   }
 
   const router = await deploy(maker, 'LimitSwapVMRouter.sol/LimitSwapVMRouter.json',
-    [AQUA_SEPOLIA, WETH_SEPOLIA, maker.address, 'FutarFi SwapVM', '1.0']);
-  const builder = await deploy(maker, 'FutarFiQuoteBuilder.sol/FutarFiQuoteBuilder.json', [AQUA_SEPOLIA]);
+    [AQUA_SEPOLIA, WETH_SEPOLIA, maker.address, 'Agora SwapVM', '1.0']);
+  const builder = await deploy(maker, 'AgoraQuoteBuilder.sol/AgoraQuoteBuilder.json', [AQUA_SEPOLIA]);
   const usdc = await deploy(maker, 'MockUSDC.sol/MockUSDC.json', []);
-  const yes = await deploy(maker, 'MockOutcomeToken.sol/MockOutcomeToken.json', ['FutarFi YES', 'tYES']);
+  const yes = await deploy(maker, 'MockOutcomeToken.sol/MockOutcomeToken.json', ['Agora YES', 'tYES']);
 
   const cfg = {
     chainId: 11155111,

@@ -11,7 +11,7 @@ const { pushOnce } = require('../src/services/twapPusherService');
 jest.setTimeout(300000);
 
 const MONGO_TEST_URI = process.env.MONGODB_TEST_URI
-  || 'mongodb://admin:password123@localhost:27017/futarfi_e2e_test?authSource=admin';
+  || 'mongodb://admin:password123@localhost:27017/agora_e2e_test?authSource=admin';
 
 const art = (rel) => JSON.parse(fs.readFileSync(path.join(__dirname, '../../blockend/out', rel), 'utf8'));
 
@@ -42,7 +42,7 @@ test('full lifecycle: proposal -> auction -> Aqua trading -> TWAP -> resolve -> 
     return c;
   };
 
-  // --- 1. FutarFi stack + proposal ---
+  // --- 1. Agora stack + proposal ---
   const mockPyth = await deploy('MockPyth.sol/MockPyth.json', [60, 1]);
   const feedId = '0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace';
   const now = BigInt(Math.floor(Date.now() / 1000));

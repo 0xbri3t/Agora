@@ -9,7 +9,7 @@ export function SiteFooter() {
     <footer className="border-t border-border bg-transparent">
       <div className="container mx-auto px-4 py-8 grid gap-8 md:grid-cols-3">
         <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground">FutarFi</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">Agora</h3>
           <Link
             href={site.website}
             target="_blank"
@@ -71,7 +71,7 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="container mx-auto px-4 pb-8 text-xs text-muted-foreground">
-        <span>© {new Date().getFullYear()} FutarFi</span>
+        <span>© {new Date().getFullYear()} Agora</span>
       </div>
     </footer>
   )

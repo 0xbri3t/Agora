@@ -4,17 +4,17 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ISwapVM} from "@1inch-swap-vm/src/interfaces/ISwapVM.sol";
 import {LimitSwapArgsBuilder} from "@1inch-swap-vm/src/instructions/LimitSwap.sol";
-import {FutarFiQuoteBuilder} from "../../src/aqua/FutarFiQuoteBuilder.sol";
+import {AgoraQuoteBuilder} from "../../src/aqua/AgoraQuoteBuilder.sol";
 
-contract FutarFiQuoteBuilderTest is Test {
-    FutarFiQuoteBuilder builder;
+contract AgoraQuoteBuilderTest is Test {
+    AgoraQuoteBuilder builder;
 
     address usdc  = address(0x1000);
     address yes   = address(0x2000); // usdc < yes -> direction byte true
     address maker = address(0xBEEF);
 
     function setUp() public {
-        builder = new FutarFiQuoteBuilder(address(0xAA00)); // aqua addr unused for building
+        builder = new AgoraQuoteBuilder(address(0xAA00)); // aqua addr unused for building
     }
 
     /// Program = 2 TLV instructions: limitSwapOnlyFull(dir) | salt

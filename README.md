@@ -2,8 +2,8 @@
 Futarchy-powered DeFi governance on Ethereum Sepolia: YES/NO markets trade as fill-or-kill lots on 1inch Aqua/SwapVM, with Pyth pull oracles and volume-weighted TWAP resolution.
 
 Currently live on!: 
-- [FutarFi landing page](https://www.futarfi.com)
-- [Api docs](https://api.futarfi.com)
+- [Agora landing page](https://www.agora.com)
+- [Api docs](https://api.agora.com)
 
 ---
 
@@ -15,7 +15,7 @@ Mentor: [Alex Arteaga](@alex-alra-arteaga)
 
 ## Introduction
 
-FutarFi is a futarchy-driven prediction market on Ethereum Sepolia, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs fully on-chain on **1inch Aqua**: makers ship fill-or-kill lot quotes (funds stay in their wallets), takers fill them through the SwapVM router at exact prices, and cancels are a `dock`. A custom SwapVM instruction enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) ≤ 1`. Resolution uses volume-weighted TWAPs computed from the on-chain fills and pushed by an attestor: the winning side captures value, while the losing side redeems its MarketTokens for underlying collateral (USDC) pro-rata, ensuring a deterministic unwind.
+Agora is a futarchy-driven prediction market on Ethereum Sepolia, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs fully on-chain on **1inch Aqua**: makers ship fill-or-kill lot quotes (funds stay in their wallets), takers fill them through the SwapVM router at exact prices, and cancels are a `dock`. A custom SwapVM instruction enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) ≤ 1`. Resolution uses volume-weighted TWAPs computed from the on-chain fills and pushed by an attestor: the winning side captures value, while the losing side redeems its MarketTokens for underlying collateral (USDC) pro-rata, ensuring a deterministic unwind.
 
 ---
 
@@ -39,7 +39,7 @@ Traditional DAO and DeFi governance frameworks rely heavily on voting mechanisms
 Worse, voter apathy and rational irrationality mean individuals have little incentive to even learn about complex policies—the probability that any single vote changes the outcome is essentially negligible.
 
 ### The Solution
-FutarFi introduces futarchy-based decision-making, where predictions, not raw votes, guide choices. Through prediction markets, participants financially back the outcome they believe will create the most value. Market prices become real-time, tamper-resistant signals of collective confidence.
+Agora introduces futarchy-based decision-making, where predictions, not raw votes, guide choices. Through prediction markets, participants financially back the outcome they believe will create the most value. Market prices become real-time, tamper-resistant signals of collective confidence.
 
 - **Aligns incentives:** those who believe they have superior information risk capital to correct prices, and in doing so reveal that information to everyone.
 - **Reduces rhetoric:** replaces speculative debate with prices that embed probabilities about outcomes.
@@ -52,7 +52,7 @@ FutarFi introduces futarchy-based decision-making, where predictions, not raw vo
 
 A major pain point for any new protocol/market is the cold start: thin books, wide spreads, and noisy first prints caused by insufficient volume/liquidity. Early trades are easy to push around, UX suffers, and governance signals get distorted.
 
-FutarFi addresses this with pre-market dual Dutch auctions (YES/NO). The auction price decays over a fixed window (from 2× → 0 relative to a base), letting participants purchase the initial supply before continuous trading begins. This design creates clear incentives and healthier market microstructure at t = 0:
+Agora addresses this with pre-market dual Dutch auctions (YES/NO). The auction price decays over a fixed window (from 2× → 0 relative to a base), letting participants purchase the initial supply before continuous trading begins. This design creates clear incentives and healthier market microstructure at t = 0:
 
 - **Discount incentive:** early buyers can acquire MarketTokens at a lower expected cost than the open, compensating them for bootstrapping depth.
 - **Information revelation:** informed participants can act on private knowledge ahead of the open, moving the clearing price toward fundamentals.
@@ -158,13 +158,13 @@ Requirements: Docker, Foundry, Node, pnpm. Set `SEPOLIA_RPC_URL` in `blockend/.e
 
 ---
 
-FutarFi is an experimental futarchy-driven prediction market designed to enable transparent, economically rational, and verifiable decision-making in decentralized systems.
+Agora is an experimental futarchy-driven prediction market designed to enable transparent, economically rational, and verifiable decision-making in decentralized systems.
 
 ---
 
 ## 1inch Aqua / SwapVM Integration (ETHGlobal Lisbon 2026)
 
-FutarFi's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) <= 1 USDC` at VM execution time.
+Agora's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) <= 1 USDC` at VM execution time.
 
 ### Deployed contracts (Sepolia)
 
@@ -172,9 +172,9 @@ FutarFi's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**:
 |---|---|---|
 | Aqua core (1inch, official) | [`0x499943E74FB0cE105688beeE8Ef2ABec5D936d31`](https://sepolia.etherscan.io/address/0x499943E74FB0cE105688beeE8Ef2ABec5D936d31) | Not redeployed — we ship/dock/pull/push against it |
 | LimitSwapVMRouter (our deployment) | [`0x4CF2713D08C5E439409b56efA4027F25EB0F6431`](https://sepolia.etherscan.io/address/0x4CF2713D08C5E439409b56efA4027F25EB0F6431) | Official SwapVM code; the canonical Sepolia router lacks limit opcodes |
-| FutarFiQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
+| AgoraQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
 | MockUSDC (demo) | [`0x34ad23A27Ae8A562928234D4415eD7225a44bB2E`](https://sepolia.etherscan.io/address/0x34ad23A27Ae8A562928234D4415eD7225a44bB2E) | 6-decimals demo collateral |
-| ProposalManager | [`0xf9E1997Eb57845AC72A280d7317485006bAABB33`](https://sepolia.etherscan.io/address/0xf9E1997Eb57845AC72A280d7317485006bAABB33) | FutarFi governance stack (Pyth-priced proposals) |
+| ProposalManager | [`0xf9E1997Eb57845AC72A280d7317485006bAABB33`](https://sepolia.etherscan.io/address/0xf9E1997Eb57845AC72A280d7317485006bAABB33) | Agora governance stack (Pyth-priced proposals) |
 
 ### Live demo transactions (Sepolia)
 
@@ -185,8 +185,8 @@ FutarFi's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**:
 
 ### Where the integration lives
 
-- `blockend/src/aqua/FutarFiQuoteBuilder.sol` — builds lot programs (`_limitSwapOnlyFull1D` + `_salt`) with 1inch's own `ProgramBuilder`; Aqua-mode orders via `MakerTraitsLib`; `buildQuote`/`buildTakerData` view encoders for the backend
-- `blockend/src/aqua/FutarFiComplement.sol` — **custom SwapVM instruction** (`IExtruction`/`IStaticExtruction`) rejecting fills when `YES + NO > 1 USDC`
+- `blockend/src/aqua/AgoraQuoteBuilder.sol` — builds lot programs (`_limitSwapOnlyFull1D` + `_salt`) with 1inch's own `ProgramBuilder`; Aqua-mode orders via `MakerTraitsLib`; `buildQuote`/`buildTakerData` view encoders for the backend
+- `blockend/src/aqua/AgoraComplement.sol` — **custom SwapVM instruction** (`IExtruction`/`IStaticExtruction`) rejecting fills when `YES + NO > 1 USDC`
 - `blockend/test/aqua/` — Foundry suites vs the real Sepolia Aqua core (fork): lot lifecycle E2E, complement guard, quote/swap consistency
 - `backend/src/services/aquaClient.js` — ship/fill/cancel from Node (all encoding via on-chain builder, no local bit-packing)
 - `backend/src/services/aquaOrderbookService.js` — indexes `Shipped`/`Swapped`/`Docked` into the existing Mongo order book

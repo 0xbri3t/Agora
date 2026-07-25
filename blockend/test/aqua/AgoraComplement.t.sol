@@ -5,21 +5,21 @@ import {Test} from "forge-std/Test.sol";
 import {IAqua} from "@1inch-aqua/src/interfaces/IAqua.sol";
 import {ISwapVM} from "@1inch-swap-vm/src/interfaces/ISwapVM.sol";
 import {LimitSwapVMRouter} from "@1inch-swap-vm/src/routers/LimitSwapVMRouter.sol";
-import {FutarFiQuoteBuilder} from "../../src/aqua/FutarFiQuoteBuilder.sol";
-import {FutarFiComplement} from "../../src/aqua/FutarFiComplement.sol";
+import {AgoraQuoteBuilder} from "../../src/aqua/AgoraQuoteBuilder.sol";
+import {AgoraComplement} from "../../src/aqua/AgoraComplement.sol";
 import {MockUSDC} from "../../src/mocks/MockUSDC.sol";
 import {MockOutcomeToken} from "../../src/mocks/MockOutcomeToken.sol";
 
 /// @notice The custom-instruction headline: the VM itself enforces the futarchy
 ///         no-arbitrage invariant price(YES) + price(NO) <= 1 USDC via _extruction.
-contract FutarFiComplementTest is Test {
+contract AgoraComplementTest is Test {
     address constant AQUA_SEPOLIA = 0x499943E74FB0cE105688beeE8Ef2ABec5D936d31;
     address constant WETH_SEPOLIA = 0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14;
 
     IAqua aqua = IAqua(AQUA_SEPOLIA);
     LimitSwapVMRouter router;
-    FutarFiQuoteBuilder builder;
-    FutarFiComplement complement;
+    AgoraQuoteBuilder builder;
+    AgoraComplement complement;
     MockUSDC usdc;
     MockOutcomeToken yes;
     MockOutcomeToken no;
@@ -31,12 +31,12 @@ contract FutarFiComplementTest is Test {
 
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("sepolia"));
-        router = new LimitSwapVMRouter(AQUA_SEPOLIA, WETH_SEPOLIA, address(this), "FutarFi SwapVM", "1.0");
-        builder = new FutarFiQuoteBuilder(AQUA_SEPOLIA);
-        complement = new FutarFiComplement();
+        router = new LimitSwapVMRouter(AQUA_SEPOLIA, WETH_SEPOLIA, address(this), "Agora SwapVM", "1.0");
+        builder = new AgoraQuoteBuilder(AQUA_SEPOLIA);
+        complement = new AgoraComplement();
         usdc = new MockUSDC();
-        yes = new MockOutcomeToken("FutarFi YES", "tYES");
-        no = new MockOutcomeToken("FutarFi NO", "tNO");
+        yes = new MockOutcomeToken("Agora YES", "tYES");
+        no = new MockOutcomeToken("Agora NO", "tNO");
 
         yes.mint(maker, 100e18);
         no.mint(maker, 100e18);
@@ -92,7 +92,7 @@ contract FutarFiComplementTest is Test {
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.prank(taker);
-        vm.expectRevert(abi.encodeWithSelector(FutarFiComplement.ComplementViolation.selector, 600000, 500000));
+        vm.expectRevert(abi.encodeWithSelector(AgoraComplement.ComplementViolation.selector, 600000, 500000));
         router.swap(yesOrder, address(usdc), address(yes), yesUsdc, takerData);
     }
 

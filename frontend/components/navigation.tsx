@@ -16,7 +16,7 @@ export function Navigation() {
           {/* Light mode: black logo */}
           <Image
             src="/blackLogo.png"
-            alt="FutarFi logo"
+            alt="Agora logo"
             width={40}
             height={40}
             className="block dark:hidden"
@@ -25,14 +25,14 @@ export function Navigation() {
           {/* Dark mode: white logo */}
           <Image
             src="/whiteLogo.png"
-            alt="FutarFi logo"
+            alt="Agora logo"
             width={40}
             height={40}
             className="hidden dark:block"
             priority
           />
           <span className="text-xl font-bold text-foreground group-hover:text-primary transition-colors sm:mr-2">
-            FutarFi
+            Agora
           </span>
         </Link>
 

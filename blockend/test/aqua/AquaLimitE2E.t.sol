@@ -6,12 +6,12 @@ import {IAqua} from "@1inch-aqua/src/interfaces/IAqua.sol";
 import {ISwapVM} from "@1inch-swap-vm/src/interfaces/ISwapVM.sol";
 import {LimitSwapVMRouter} from "@1inch-swap-vm/src/routers/LimitSwapVMRouter.sol";
 import {TakerTraitsLib} from "@1inch-swap-vm/src/libs/TakerTraits.sol";
-import {FutarFiQuoteBuilder} from "../../src/aqua/FutarFiQuoteBuilder.sol";
+import {AgoraQuoteBuilder} from "../../src/aqua/AgoraQuoteBuilder.sol";
 import {MockUSDC} from "../../src/mocks/MockUSDC.sol";
 import {MockOutcomeToken} from "../../src/mocks/MockOutcomeToken.sol";
 
 /// @notice E2E on a Sepolia fork against the REAL Aqua core.
-///         FutarFi quotes = Aqua fill-or-kill lots: shipped amounts encode price+size,
+///         Agora quotes = Aqua fill-or-kill lots: shipped amounts encode price+size,
 ///         fills are all-or-nothing at the exact ratio, cancel = dock.
 contract AquaLimitE2E is Test {
     address constant AQUA_SEPOLIA = 0x499943E74FB0cE105688beeE8Ef2ABec5D936d31;
@@ -19,7 +19,7 @@ contract AquaLimitE2E is Test {
 
     IAqua aqua = IAqua(AQUA_SEPOLIA);
     LimitSwapVMRouter router;
-    FutarFiQuoteBuilder builder;
+    AgoraQuoteBuilder builder;
     MockUSDC usdc;
     MockOutcomeToken yes;
 
@@ -32,10 +32,10 @@ contract AquaLimitE2E is Test {
 
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("sepolia"));
-        router = new LimitSwapVMRouter(AQUA_SEPOLIA, WETH_SEPOLIA, address(this), "FutarFi SwapVM", "1.0");
-        builder = new FutarFiQuoteBuilder(AQUA_SEPOLIA);
+        router = new LimitSwapVMRouter(AQUA_SEPOLIA, WETH_SEPOLIA, address(this), "Agora SwapVM", "1.0");
+        builder = new AgoraQuoteBuilder(AQUA_SEPOLIA);
         usdc = new MockUSDC();
-        yes = new MockOutcomeToken("FutarFi YES", "tYES");
+        yes = new MockOutcomeToken("Agora YES", "tYES");
 
         yes.mint(maker, 100e18);
         usdc.mint(taker, 1_000e6);

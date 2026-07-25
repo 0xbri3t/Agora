@@ -1,5 +1,5 @@
-// Aqua/SwapVM client: ship, fill and cancel FutarFi fill-or-kill lot quotes.
-// All order/taker-data encoding is delegated to the on-chain FutarFiQuoteBuilder
+// Aqua/SwapVM client: ship, fill and cancel Agora fill-or-kill lot quotes.
+// All order/taker-data encoding is delegated to the on-chain AgoraQuoteBuilder
 // (eth_call) so this module never re-implements MakerTraits/TakerTraits packing.
 // Comments simple in English
 const { ethers } = require('ethers');
