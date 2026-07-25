@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/stateful-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useAccount, useConfig } from "wagmi"
+import { useAccount, useConfig, usePublicClient } from "wagmi"
 import { toast } from "sonner"
 import type { MarketOption, AuctionData } from "@/lib/types"
 import { useAuctionBuy } from "@/hooks/use-auction-buy"
@@ -30,6 +30,7 @@ interface AuctionTradePanelProps {
 export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, fullHeight = false }: AuctionTradePanelProps) {
   const { isConnected, address } = useAccount()
   const config = useConfig()
+  const publicClient = usePublicClient()
   const [selectedMarket, setSelectedMarket] = useState<MarketOption>("YES")
   const { amount, setAmount, approveAndBuy, isApproving, isBuying, error, remaining, userTokenBalance, onchainPrice, collateralBalance } =
     useAuctionBuy({ proposalAddress, side: selectedMarket })
@@ -80,42 +81,36 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
   const handleClaim = async (): Promise<boolean> => {
     if (!isConnected) { toast.error("Connect wallet"); return false }
     if (!address) { toast.error("No account"); return false }
+    if (refundableBids === 0) { return false }
     setIsClaiming(true)
     try {
+      // Reads go through the public client — the embedded wallet's provider
+      // rejects eth_getLogs. The signer is only for the exitBid writes.
+      if (!publicClient) { toast.error("No client"); return false }
       const signer = await getEthersSigner(config)
-      const provider = signer.provider
 
-      const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
       const [yesAuctionAddr, noAuctionAddr] = await Promise.all([
-        proposal.yesAuction(),
-        proposal.noAuction(),
-      ])
+        publicClient.readContract({ address: proposalAddress, abi: proposal_abi, functionName: "yesAuction" }),
+        publicClient.readContract({ address: proposalAddress, abi: proposal_abi, functionName: "noAuction" }),
+      ]) as [`0x${string}`, `0x${string}`]
       if (!yesAuctionAddr || !noAuctionAddr) { toast.error("Proposal not ready"); return false }
 
       // A non-graduated CCA refunds bidders directly: exit every bid we own.
-      const iface = new ethers.Interface([
-        'event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount)',
-        'event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded)',
-        'function exitBid(uint256 bidId)',
-        'function startBlock() view returns (uint64)',
-      ])
+      const bidEvt = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidSubmitted') as any
+      const exitEvt = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidExited') as any
       let exited = 0
-      for (const auctionAddr of [yesAuctionAddr as string, noAuctionAddr as string]) {
+      for (const auctionAddr of [yesAuctionAddr, noAuctionAddr]) {
         // Scan from the auction's first block: block 0 makes a forked node
         // forward the query upstream, where the range is rejected.
-        const fromBlock = await new ethers.Contract(auctionAddr, iface, provider).startBlock()
-        const submitted = await provider.getLogs({
-          address: auctionAddr, fromBlock,
-          topics: [iface.getEvent('BidSubmitted')!.topicHash, null, ethers.zeroPadValue(address, 32)],
-        })
-        const alreadyExited = await provider.getLogs({
-          address: auctionAddr, fromBlock,
-          topics: [iface.getEvent('BidExited')!.topicHash, null, ethers.zeroPadValue(address, 32)],
-        })
-        const exitedIds = new Set(alreadyExited.map((l) => String(iface.parseLog(l)!.args.bidId)))
-        const auction = new ethers.Contract(auctionAddr, iface, signer)
-        for (const log of submitted) {
-          const bidId = iface.parseLog(log)!.args.id as bigint
+        const fromBlock = await publicClient.readContract({ address: auctionAddr, abi: cca_abi, functionName: "startBlock" }) as bigint
+        const [submitted, alreadyExited] = await Promise.all([
+          publicClient.getLogs({ address: auctionAddr, event: bidEvt, args: { owner: address }, fromBlock }),
+          publicClient.getLogs({ address: auctionAddr, event: exitEvt, args: { owner: address }, fromBlock }),
+        ])
+        const exitedIds = new Set(alreadyExited.map((l: any) => String(l.args.bidId)))
+        const auction = new ethers.Contract(auctionAddr, ['function exitBid(uint256 bidId)'], signer)
+        for (const log of submitted as any[]) {
+          const bidId = log.args.id as bigint
           if (exitedIds.has(String(bidId))) continue
           try {
             const tx = await auction.exitBid(bidId)
@@ -146,6 +141,8 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
 
   // On-chain reads for failed auction balances
   const [balances, setBalances] = useState<{ tYES: string; tNO: string; treasuryCollateral: string; collateralWallet: string } | null>(null)
+  // Whether the user still has unexited bids to refund — gates the claim button
+  const [refundableBids, setRefundableBids] = useState<number | null>(null)
   useEffect(() => {
     if (!isFailed || !isConnected || !address || !proposalAddress) return
 
@@ -153,29 +150,28 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
 
     const fetchBalances = async () => {
       try {
-        const signer = await getEthersSigner(config)
-        const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
+        // All reads via the public client — the embedded wallet's provider
+        // rejects eth_getLogs (and there's no reason to read through a signer).
+        if (!publicClient || !address) return
+        const read = (addr: `0x${string}`, abi: any, fn: string, args?: any[]) =>
+          publicClient.readContract({ address: addr, abi, functionName: fn, args } as any)
         const [yesTokenAddr, noTokenAddr, treasuryAddr, collateralAddr] = await Promise.all([
-          proposal.yesToken(),
-          proposal.noToken(),
-          proposal.treasury(),
-          proposal.collateral(),
-        ])
+          read(proposalAddress, proposal_abi, "yesToken"),
+          read(proposalAddress, proposal_abi, "noToken"),
+          read(proposalAddress, proposal_abi, "treasury"),
+          read(proposalAddress, proposal_abi, "collateral"),
+        ]) as [`0x${string}`, `0x${string}`, `0x${string}`, `0x${string}`]
         if (!yesTokenAddr || !noTokenAddr || !treasuryAddr || !collateralAddr) return
-        const yesToken = new ethers.Contract(yesTokenAddr, marketToken_abi as any, signer)
-        const noToken = new ethers.Contract(noTokenAddr, marketToken_abi as any, signer)
-        const treasury = new ethers.Contract(treasuryAddr, treasury_abi as any, signer)
-        const collateral = new ethers.Contract(collateralAddr, marketToken_abi as any, signer)
         const [tYESRaw, tNORaw, yesSupplyRaw, noSupplyRaw, potYesRaw, potNoRaw, decimals, collateralWalletRaw] = await Promise.all([
-          yesToken.balanceOf(address),
-          noToken.balanceOf(address),
-          yesToken.totalSupply(),
-          noToken.totalSupply(),
-          treasury.potYes(),
-          treasury.potNo(),
-          yesToken.decimals(),
-          collateral.balanceOf(address),
-        ])
+          read(yesTokenAddr, marketToken_abi, "balanceOf", [address]),
+          read(noTokenAddr, marketToken_abi, "balanceOf", [address]),
+          read(yesTokenAddr, marketToken_abi, "totalSupply"),
+          read(noTokenAddr, marketToken_abi, "totalSupply"),
+          read(treasuryAddr, treasury_abi, "potYes"),
+          read(treasuryAddr, treasury_abi, "potNo"),
+          read(yesTokenAddr, marketToken_abi, "decimals"),
+          read(collateralAddr, marketToken_abi, "balanceOf", [address]),
+        ]) as [bigint, bigint, bigint, bigint, bigint, bigint, number, bigint]
         const tYES = ethers.formatUnits(tYESRaw, decimals)
         const tNO = ethers.formatUnits(tNORaw, decimals)
         // Treasury USDC share: proportional from both pots
@@ -184,7 +180,28 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
         const treasuryCollateral = ethers.formatUnits((BigInt(shareYES) + BigInt(shareNO)), 6)
         const collateralWallet = ethers.formatUnits(collateralWalletRaw, 6)
         if (!cancelled) setBalances({ tYES, tNO, treasuryCollateral, collateralWallet })
-      } catch {
+
+        // Count unexited bids across both auctions — nothing to refund means
+        // the claim button has no job to do.
+        const [yesAuctionAddr, noAuctionAddr] = await Promise.all([
+          read(proposalAddress, proposal_abi, "yesAuction"),
+          read(proposalAddress, proposal_abi, "noAuction"),
+        ]) as [`0x${string}`, `0x${string}`]
+        const bidEvt = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidSubmitted') as any
+        const exitEvt = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidExited') as any
+        let pending = 0
+        for (const auctionAddr of [yesAuctionAddr, noAuctionAddr]) {
+          const fromBlock = await read(auctionAddr, cca_abi, "startBlock") as bigint
+          const [submitted, exitedLogs] = await Promise.all([
+            publicClient.getLogs({ address: auctionAddr, event: bidEvt, args: { owner: address }, fromBlock }),
+            publicClient.getLogs({ address: auctionAddr, event: exitEvt, args: { owner: address }, fromBlock }),
+          ])
+          const exitedIds = new Set(exitedLogs.map((l: any) => String(l.args.bidId)))
+          pending += (submitted as any[]).filter((l) => !exitedIds.has(String(l.args.id))).length
+        }
+        if (!cancelled) setRefundableBids(pending)
+      } catch (err) {
+        console.error('Failed-auction balances fetch:', err)
         if (!cancelled) setBalances(null)
       }
     }
@@ -200,55 +217,42 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
       cancelled = true
       try { window.removeEventListener("auction:tx", onTx) } catch {}
     }
-  }, [isFailed, isConnected, address, proposalAddress])
+  }, [isFailed, isConnected, address, proposalAddress, publicClient])
 
   if (isFailed) {
+    const nothingToRefund = refundableBids === 0
     return (
       <Card className={fullHeight ? "h-full flex flex-col" : undefined}>
         <CardHeader>
           <CardTitle className="text-destructive">Auction Failed</CardTitle>
-          <CardDescription>Minimum bid requirement not met</CardDescription>
+          <CardDescription>
+            The minimum wasn&apos;t raised, so the proposal was cancelled. Every
+            bid is refunded in full — no tokens were issued.
+          </CardDescription>
         </CardHeader>
-        <CardContent className={fullHeight ? "flex-1 flex flex-col justify-end" : undefined}>
-          {/* Balances block above claim button */}
+        <CardContent className={fullHeight ? "flex-1 flex flex-col justify-end space-y-4" : "space-y-4"}>
           {balances && (
-            <>
-              <div className="mb-2">
-                <span className="text-sm font-semibold text-muted-foreground">
-                  Your USDC balance: {Number(balances.collateralWallet).toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                </span>
+            <div className="rounded-md border bg-muted/30 divide-y divide-border">
+              <div className="flex items-center justify-between px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Your USDC balance</span>
+                <span className="font-mono tabular-nums">{Number(balances.collateralWallet).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
-              <div className="mb-4 flex flex-wrap gap-3 justify-between">
-                <div className="rounded-md border bg-muted/30 p-3 min-w-[120px]">
-                  <p className="text-xs text-muted-foreground">Your tYES</p>
-                  <p className="text-lg font-semibold">{Number(balances.tYES).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
-                </div>
-                <div className="rounded-md border bg-muted/30 p-3 min-w-[120px]">
-                  <p className="text-xs text-muted-foreground">Your tNO</p>
-                  <p className="text-lg font-semibold">{Number(balances.tNO).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
-                </div>
-                <div className="rounded-md border bg-muted/30 p-3 min-w-[140px]">
-                  <p className="text-xs text-muted-foreground">Your USDC in Treasury</p>
-                  <p className="text-lg font-semibold">{Number(balances.treasuryCollateral).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
-                </div>
+              <div className="flex items-center justify-between px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Refundable bids</span>
+                <span className="font-mono tabular-nums">{refundableBids ?? "…"}</span>
               </div>
-            </>
+            </div>
           )}
           <Button
-            className={[
-              "w-full text-base py-5",
-              "rounded-md text-white",
-              "bg-gradient-to-b from-emerald-500 to-emerald-600",
-              "shadow ring-1 ring-emerald-400/40",
-              "transition-all duration-200",
-              "hover:from-emerald-500/90 hover:to-emerald-600/90 hover:shadow-lg hover:shadow-emerald-500/20",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
-            ].join(" ")}
+            className="w-full"
             onClick={handleClaim}
-            aria-disabled={!isConnected || isClaiming || balances?.tYES === "0.0" && balances?.tNO === "0.0"}
+            aria-disabled={!isConnected || isClaiming || nothingToRefund || refundableBids === null}
           >
-            {isClaiming ? "Claiming..." : "Claim USDC Collateral"}
+            {isClaiming
+              ? "Refunding..."
+              : nothingToRefund
+                ? "Nothing to refund"
+                : `Refund ${refundableBids ?? ""} bid${(refundableBids ?? 0) === 1 ? "" : "s"}`}
           </Button>
         </CardContent>
       </Card>

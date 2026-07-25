@@ -649,12 +649,14 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
               <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2" style={{ backgroundColor: YES_COLOR }} />YES</span>
               <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2" style={{ backgroundColor: NO_COLOR }} />NO</span>
             </div>
-            <div className="flex items-center gap-2 text-sm">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span title={formatDateTime(effectiveEndTime)}>{countdownText}</span>
-            </div>
+            {proposalState !== "Cancelled" && (
+              <div className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span title={formatDateTime(effectiveEndTime)}>{countdownText}</span>
+              </div>
+            )}
             <Badge variant={isSuccessful ? "default" : "secondary"} className={proposalState === "Cancelled" ?  "bg-red-500/10 text-red-600 border-red-500/20" : "bg-primary/10 text-primary border-primary/20" }>
-              {isSuccessful ? "Minimum Reached" : "In Progress"}
+              {proposalState === "Cancelled" ? "Cancelled — minimum not met" : isSuccessful ? "Minimum Reached" : "In Progress"}
             </Badge>
           </div>
         </div>
