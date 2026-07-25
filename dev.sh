@@ -163,6 +163,14 @@ cmd_start() {
 
   # 6. Frontend
   [ -d "$ROOT/frontend/node_modules" ] || ( info "installing frontend deps ..." && cd "$ROOT/frontend" && pnpm install )
+  # `next build` and `next dev` share .next, so a production build run while
+  # the dev server is up leaves it serving 404s for every chunk. Start clean.
+  if [ -d "$ROOT/frontend/.next" ] && [ ! -f "$ROOT/frontend/.next/BUILD_ID" ]; then
+    : # dev-only cache, fine to keep
+  elif [ -d "$ROOT/frontend/.next" ]; then
+    info "clearing .next left behind by a production build"
+    rm -rf "$ROOT/frontend/.next"
+  fi
   free_port 3000 frontend
   start_bg frontend "$ROOT/frontend" pnpm dev
   wait_for frontend http://localhost:3000 120
