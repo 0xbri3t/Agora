@@ -13,10 +13,10 @@ export function Navigation() {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-3 group">
           <Image
-            src="/whiteLogo.png"
+            src="/logo.svg"
             alt="Agora logo"
-            width={40}
-            height={40}
+            width={32}
+            height={32}
             priority
           />
           <span className="font-display text-[18px] text-foreground transition-opacity group-hover:opacity-80 sm:mr-2">

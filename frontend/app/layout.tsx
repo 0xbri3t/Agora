@@ -14,6 +14,7 @@ import "@/styles/globals.css"
 export const metadata: Metadata = {
   title: "Agora",
   description: "Create proposals, open prediction markets, and execute outcomes trustlessly",
+  icons: { icon: "/favicon.svg" },
 }
 
 export default function RootLayout({
