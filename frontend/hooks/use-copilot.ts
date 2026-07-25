@@ -18,7 +18,7 @@ export interface CopilotInsights {
   impliedProbability: { bps: number; basis: string } | null
   arbitrage: {
     spread: { askYes: string; askNo: string; gapUsdc6d: string; gapBps: number | null; leading: string } | null
-    violations: { maker: string; askYes: string; askNo: string; gapBps: number }[]
+    violations: { side: string; low: string; high: string; gapBps: number; makers: number }[]
   }
   trend: { direction: string; leading: string; points: number } | null
   /** Uniswap CCA bootstrap phase signal (null once trading takes over) */

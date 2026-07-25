@@ -83,11 +83,11 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
             )}
 
             {insights.arbitrage.violations.map((v) => (
-              <div key={v.maker} className="rounded-md border border-border bg-muted/50 p-3 text-sm">
-                <p className="font-medium">Divergent maker</p>
+              <div key={v.side} className="rounded-md border border-border bg-muted/50 p-3 text-sm">
+                <p className="font-medium">Thin {v.side} side</p>
                 <p className="text-muted-foreground">
-                  {v.maker.slice(0, 10)}… quotes the two worlds {(v.gapBps / 100).toFixed(0)}% apart
-                  ({fmtUsdc(v.askYes)} vs {fmtUsdc(v.askNo)} USDC).
+                  Its {v.makers} makers quote between {fmtUsdc(v.low)} and {fmtUsdc(v.high)} USDC
+                  ({(v.gapBps / 100).toFixed(0)}% apart) — little consensus behind that forecast.
                 </p>
               </div>
             ))}

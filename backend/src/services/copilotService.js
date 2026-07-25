@@ -7,14 +7,14 @@
 // The three insights mirror the protocol's economics:
 //  - implied probability: TWAP(YES) vs TWAP(NO) — which world the market picks
 //  - dispersion: outcome tokens price the subject asset in each world (a
-//    forecast, not a probability), so the copilot reads the spread between the
-//    two sides and flags makers quoting them far apart — the same behaviour the
-//    AgoraComplement SwapVM instruction rejects at fill time.
+//    forecast, not a probability), so the copilot reports the spread between
+//    the two sides and how tightly makers agree within each one.
 //  - TWAP trend: where the resolution metric is heading.
 
-// How far a single maker's two forecasts may sit apart before the copilot
-// calls it out; mirrors the bound the AgoraComplement instruction enforces.
-const MAX_MAKER_DIVERGENCE_BPS = 2000; // 20%
+// How far apart makers on the SAME side may quote before the copilot calls the
+// book thin. Disagreement across YES and NO is the signal, not a problem; wide
+// disagreement inside one side means the price there is barely anchored.
+const THIN_SIDE_SPREAD_BPS = 2000; // 20%
 
 // ---------------------------------------------------------------------------
 // Data fetching
@@ -207,9 +207,8 @@ function impliedProbability(data) {
  * TWAP(YES) against TWAP(NO):
  * - spread: how far apart the two sides' best forecasts sit, and which world
  *   the book currently says is worth more.
- * - outliers: a maker quoting both sides far apart from each other can swing
- *   that comparison cheaply — the same behaviour the AgoraComplement VM
- *   instruction rejects at fill time when a maker arms it.
+ * - thin sides: when the makers quoting one side disagree wildly among
+ *   themselves, that side's forecast rests on very little consensus.
  */
 function detectArbitrage(data) {
   const result = { spread: null, violations: [] };
@@ -228,31 +227,20 @@ function detectArbitrage(data) {
     };
   }
 
-  const minBy = (asks) => {
-    const map = new Map();
-    for (const a of asks) {
-      const prev = map.get(a.maker);
-      if (prev === undefined || a.price < prev) map.set(a.maker, a.price);
-    }
-    return map;
-  };
-  const yesByMaker = minBy(data.asksYes);
-  const noByMaker = minBy(data.asksNo);
-  for (const [maker, yesPrice] of yesByMaker) {
-    const noPrice = noByMaker.get(maker);
-    if (noPrice === undefined) continue;
-    const low = yesPrice < noPrice ? yesPrice : noPrice;
-    const high = yesPrice < noPrice ? noPrice : yesPrice;
-    if (low === 0n) continue;
+  // Within one side, how far apart do the makers sit?
+  const sideSpread = (asks, side) => {
+    if (asks.length < 2) return null;
+    const prices = asks.map((a) => a.price);
+    const low = prices.reduce((m, p) => (p < m ? p : m));
+    const high = prices.reduce((m, p) => (p > m ? p : m));
+    if (low === 0n) return null;
     const gapBps = Number(((high - low) * 10000n) / low);
-    if (gapBps > MAX_MAKER_DIVERGENCE_BPS) {
-      result.violations.push({
-        maker,
-        askYes: yesPrice.toString(),
-        askNo: noPrice.toString(),
-        gapBps,
-      });
-    }
+    return gapBps > THIN_SIDE_SPREAD_BPS
+      ? { side, low: low.toString(), high: high.toString(), gapBps, makers: asks.length }
+      : null;
+  };
+  for (const thin of [sideSpread(data.asksYes, 'YES'), sideSpread(data.asksNo, 'NO')]) {
+    if (thin) result.violations.push(thin);
   }
   return result;
 }
@@ -360,13 +348,13 @@ function summarize(data, probability, arbitrage, trend, auction) {
   }
   for (const v of arbitrage.violations) {
     lines.push(
-      `Maker ${v.maker.slice(0, 10)}… quotes the two worlds ${(v.gapBps / 100).toFixed(0)}% apart ` +
-      `(${fmtUsdc(v.askYes)} vs ${fmtUsdc(v.askNo)} USDC) — wide enough to swing the TWAP comparison ` +
-      `cheaply, and exactly what the AgoraComplement VM instruction rejects when armed.`
+      `The ${v.side} side is thin: its ${v.makers} makers quote between ${fmtUsdc(v.low)} and ` +
+      `${fmtUsdc(v.high)} USDC (${(v.gapBps / 100).toFixed(0)}% apart), so that forecast rests on ` +
+      `little consensus.`
     );
   }
   if (arbitrage.violations.length === 0 && arbitrage.spread) {
-    lines.push('No maker is quoting the two worlds far apart right now.');
+    lines.push('Makers agree closely within each side.');
   }
 
   if (data.status === 'RESOLVED' && data.winner) {

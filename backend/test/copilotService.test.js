@@ -63,21 +63,31 @@ describe('detectArbitrage', () => {
     expect(result.violations).toHaveLength(0);
   });
 
-  test('flags a maker quoting the two worlds far apart', () => {
+  test('flags a side whose own makers disagree wildly', () => {
     const result = detectArbitrage({
       ...base,
       asksYes: [
-        { maker: '0xevil', price: 9000_000000n, lotToken: 1n },
-        { maker: '0xok', price: 3000_000000n, lotToken: 1n },
+        { maker: '0xa', price: 3000_000000n, lotToken: 1n },
+        { maker: '0xb', price: 9000_000000n, lotToken: 1n }, // 200% above 0xa
       ],
       asksNo: [
-        { maker: '0xevil', price: 2000_000000n, lotToken: 1n },
-        { maker: '0xok', price: 2900_000000n, lotToken: 1n },
+        { maker: '0xa', price: 2900_000000n, lotToken: 1n },
+        { maker: '0xb', price: 3000_000000n, lotToken: 1n }, // tight
       ],
     });
     expect(result.violations).toHaveLength(1);
-    expect(result.violations[0].maker).toBe('0xevil');
-    expect(result.violations[0].gapBps).toBe(35000); // 350% apart
+    expect(result.violations[0].side).toBe('YES');
+    expect(result.violations[0].gapBps).toBe(20000);
+  });
+
+  test('two worlds priced far apart is signal, not a warning', () => {
+    const result = detectArbitrage({
+      ...base,
+      asksYes: [{ maker: '0xa', price: 90_000_000000n, lotToken: 1n }],
+      asksNo: [{ maker: '0xb', price: 3000_000000n, lotToken: 1n }],
+    });
+    expect(result.violations).toHaveLength(0);
+    expect(result.spread.leading).toBe('YES');
   });
 
   test('a tight book raises nothing', () => {
