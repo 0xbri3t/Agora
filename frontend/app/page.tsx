@@ -1,10 +1,8 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
-import { TickerTape } from "@/components/landing/ticker-tape"
-import { FutarchyDiagram } from "@/components/landing/futarchy-diagram"
-import { TeeSpec } from "@/components/landing/tee-spec"
 import { PixelAgora } from "@/components/landing/pixel-agora"
+import { DecisionFlow } from "@/components/landing/decision-flow"
 
 const BUILT_ON = ["1inch Aqua", "Ethereum Sepolia", "Pyth", "USDC"]
 
@@ -18,20 +16,28 @@ export default function HomePage() {
               Markets decide.
             </h1>
             <p className="max-w-md text-lg text-muted-foreground">
-              Proposals become prediction markets. Price picks the outcome.
-              Contracts execute it.
+              Any decision — a treasury move, a protocol change, a new CEO —
+              becomes a prediction market. The price picks the outcome.
             </p>
             <Button asChild variant="ghost" className="w-fit px-0">
               <Link href="/proposals">Explore markets &#8599;</Link>
             </Button>
           </div>
 
-          <div className="hidden lg:block">
-            <PixelAgora className="flex h-full min-h-[520px] w-full items-center justify-center" />
+          <div className="hidden lg:flex lg:flex-col lg:items-center lg:gap-6">
+            <PixelAgora className="flex min-h-[520px] w-full items-center justify-center" />
+            <figure className="max-w-md text-center">
+              <blockquote className="text-sm leading-relaxed text-muted-foreground">
+                Civilization is built on correct capital allocation.
+                Corruption and conflicts of interest undermine it.
+                Agora solves this.
+              </blockquote>
+              <figcaption className="mt-2 font-mono text-xs text-muted-foreground/60">
+                — Arnau Briet
+              </figcaption>
+            </figure>
           </div>
         </div>
-
-        <TickerTape />
       </section>
 
       <section className="border-t border-border">
@@ -50,23 +56,12 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-border">
-        <div className="container mx-auto grid grid-cols-1 gap-10 px-6 py-16 md:py-24 lg:grid-cols-[1fr_minmax(0,420px)] lg:items-center lg:gap-16">
-          <FutarchyDiagram />
-          <div className="flex flex-col gap-4">
-            <p className="font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
-              Two conditional markets trade the same decision.
-              <br />
-              The stronger TWAP wins.
-              <br />
-              The contract executes the winner.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-t border-border">
-        <div className="container mx-auto max-w-2xl px-6 py-16 md:py-24">
-          <TeeSpec />
+        <div className="container mx-auto px-6 py-16 md:py-24">
+          <p className="mx-auto mb-12 max-w-2xl text-center font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
+            Two conditional markets trade the same decision.
+            The stronger TWAP picks the winner.
+          </p>
+          <DecisionFlow className="mx-auto max-w-5xl" />
         </div>
       </section>
 
