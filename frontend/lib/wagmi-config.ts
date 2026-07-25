@@ -10,10 +10,11 @@ if (projectId.length !== 32) {
   console.warn('WalletConnect Project ID must be exactly 32 characters long. Please set NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID in your environment variables.')
 }
 
-const chains = [
-  sepolia,
-  anvil as unknown as Chain,
-] as [Chain, ...Chain[]]
+// First chain is wagmi's default: on a local fork the app must start on
+// anvil or the embedded wallet connects against real Sepolia.
+const chains = (process.env.NEXT_PUBLIC_OPENFORT_LOCAL === '1'
+  ? [anvil as unknown as Chain, sepolia]
+  : [sepolia, anvil as unknown as Chain]) as [Chain, ...Chain[]]
 
 // Openfort supplies the external wallet connectors (MetaMask, WalletConnect,
 // Coinbase, injected) alongside its own embedded/guest wallet, so there is no
