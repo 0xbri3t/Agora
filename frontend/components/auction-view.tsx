@@ -126,7 +126,6 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const { data: treasuryAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "treasury" })
   // Onchain minimum required to open (USDC, 6d or 18d per contract). Here it's uint256, represents USDC amount.
   const { data: minToOpen } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "minToOpen" })
-  const minimumRequired = (typeof minToOpen === "bigint" ? minToOpen : auctionData.minimumRequired)
   const { data: isCancelled } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "state" })
   const proposalState = isCancelled === 3 ? "Cancelled" : (isCancelled === 2 ? "Resolved" : (isCancelled === 1 ? "Live" : "Auction")) as ProposalStatus
 
@@ -162,6 +161,8 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const [yesPriceNow, setYesPriceNow] = useState<number>(auctionData.yesCurrentPrice)
   const [noPriceNow, setNoPriceNow] = useState<number>(auctionData.noCurrentPrice)
   const [raisedOverride, setRaisedOverride] = useState<bigint | undefined>(undefined)
+  const [raisedYesSide, setRaisedYesSide] = useState<bigint | undefined>(undefined)
+  const [raisedNoSide, setRaisedNoSide] = useState<bigint | undefined>(undefined)
   const [blockTimestamp, setBlockTimestamp] = useState<number | undefined>(undefined)
 
   useEffect(() => { if (typeof yesPrice6d === "bigint") setYesPriceNow(Number(yesPrice6d) / 1_000_000) }, [yesPrice6d])
@@ -170,6 +171,17 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   // Curve params: the CCA clearing price starts at the floor and rises with demand
   const { data: floorQ96 } = useReadContract({ address: yesAuctionAddr as `0x${string}` | undefined, abi: cca_abi, functionName: "floorPrice" })
   const startPrice6d = typeof floorQ96 === "bigint" ? q96ToPrice6d(floorQ96) : undefined
+
+  // minToOpen is a TOKEN amount (18d); graduation requires its USDC value at
+  // the auction floor, per auction (Proposal._buildAuctionParameters). Convert
+  // so the quorum compares USDC against USDC — both sides combined.
+  const minimumRequired = useMemo(() => {
+    const minTokens = (typeof minToOpen === "bigint" ? minToOpen : auctionData.minimumRequired)
+    if (typeof floorQ96 === "bigint" && floorQ96 > 0n) {
+      return (2n * minTokens * q96ToPrice6d(floorQ96)) / 10n ** 18n
+    }
+    return minTokens
+  }, [minToOpen, auctionData.minimumRequired, floorQ96])
   const { data: startTimeSec } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "auctionStartTime" })
   const { data: endTimeSec } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "auctionEndTime" })
 
@@ -268,14 +280,41 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         const bal: bigint = await publicClient.readContract({ address: noTokenAddr as any, abi: marketToken_abi, functionName: "balanceOf", args: [address] })
         setNoBalOverride(bal ?? 0n)
       }
-      // Treasury raised (USDC 6d)
+      // Raised (USDC 6d). Treasury pots only fill at settlement, so during the
+      // auction the committed bids ARE the raised amount — sum the live
+      // BidSubmitted budgets (minus exits) from both CCAs.
+      let raised = 0n
       if (treasuryAddr) {
         const [py, pn] = await Promise.all([
           publicClient.readContract({ address: treasuryAddr as any, abi: treasury_abi, functionName: "potYes" }) as Promise<bigint>,
           publicClient.readContract({ address: treasuryAddr as any, abi: treasury_abi, functionName: "potNo" }) as Promise<bigint>,
         ])
-        setRaisedOverride((py ?? 0n) + (pn ?? 0n))
+        raised = (py ?? 0n) + (pn ?? 0n)
       }
+      if (raised === 0n && yesAuctionAddr && noAuctionAddr) {
+        const bidEvent = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidSubmitted') as any
+        const exitEvent = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidExited') as any
+        const sumSide = async (auctionAddr: string) => {
+          const fromBlock = await publicClient.readContract({ address: auctionAddr as any, abi: cca_abi, functionName: 'startBlock' }) as bigint
+          const [submitted, exited] = await Promise.all([
+            publicClient.getLogs({ address: auctionAddr as any, event: bidEvent, fromBlock }),
+            publicClient.getLogs({ address: auctionAddr as any, event: exitEvent, fromBlock }),
+          ])
+          const exitedIds = new Set(exited.map((l: any) => String(l.args.bidId)))
+          let sum = 0n
+          for (const l of submitted as any[]) {
+            if (!exitedIds.has(String(l.args.id))) sum += BigInt(l.args.amount)
+          }
+          return sum
+        }
+        try {
+          const [ry, rn] = await Promise.all([sumSide(yesAuctionAddr), sumSide(noAuctionAddr)])
+          setRaisedYesSide(ry)
+          setRaisedNoSide(rn)
+          raised = ry + rn
+        } catch { /* keep partial sum */ }
+      }
+      setRaisedOverride(raised)
     } catch {
       // silent
     }
@@ -327,23 +366,43 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   }, [noCap, noRemaining, noSupply])
 
   // Percent progress toward minimum based on TOKEN supply vs MIN_TO_OPEN (both 18 decimals)
+  // Per-side USDC required to graduate: the value of minToOpen tokens at the
+  // auction floor (mirrors Proposal._buildAuctionParameters).
+  const requiredPerSide = useMemo(() => {
+    const minTokens = (typeof minToOpen === "bigint" ? minToOpen : auctionData.minimumRequired)
+    if (typeof floorQ96 === "bigint" && floorQ96 > 0n) {
+      return (minTokens * q96ToPrice6d(floorQ96)) / 10n ** 18n
+    }
+    return 0n
+  }, [minToOpen, auctionData.minimumRequired, floorQ96])
+
   const yesMinProgressPercent = useMemo(() => {
+    // Graduation is measured in committed USDC, not tokens sold — the CCA only
+    // marks tokens sold as blocks release supply, which lags live bids.
+    if (typeof raisedYesSide === "bigint" && requiredPerSide > 0n) {
+      const pct = Number((raisedYesSide * 1000n) / requiredPerSide) / 10
+      return pct > 100 ? 100 : pct
+    }
     const supply = yesSupplyForMin
     const min = (typeof yesMinToOpen === "bigint" ? yesMinToOpen : 0n)
     if (min <= 0n) return 100
     const pctTimes10 = (supply * 1000n) / min // one decimal
     const pct = Number(pctTimes10) / 10
     return pct > 100 ? 100 : pct
-  }, [yesSupplyForMin, yesMinToOpen])
+  }, [raisedYesSide, requiredPerSide, yesSupplyForMin, yesMinToOpen])
 
   const noMinProgressPercent = useMemo(() => {
+    if (typeof raisedNoSide === "bigint" && requiredPerSide > 0n) {
+      const pct = Number((raisedNoSide * 1000n) / requiredPerSide) / 10
+      return pct > 100 ? 100 : pct
+    }
     const supply = noSupplyForMin
     const min = (typeof noMinToOpen === "bigint" ? noMinToOpen : 0n)
     if (min <= 0n) return 100
     const pctTimes10 = (supply * 1000n) / min // one decimal
     const pct = Number(pctTimes10) / 10
     return pct > 100 ? 100 : pct
-  }, [noSupplyForMin, noMinToOpen])
+  }, [raisedNoSide, requiredPerSide, noSupplyForMin, noMinToOpen])
 
   // Precompute X-axis ticks with proportional days/hours granularity and ensure last tick = auction end
   const xTicks = useMemo(() => {
