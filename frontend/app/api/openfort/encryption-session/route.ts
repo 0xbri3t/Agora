@@ -37,8 +37,13 @@ export async function POST() {
       )
     }
 
+    // Shield answers { session_id }, the SDK expects { session: string }
     const data = await response.json()
-    return NextResponse.json({ session: data.session ?? data })
+    const session = data.session_id ?? data.session
+    if (typeof session !== 'string' || session.length === 0) {
+      return NextResponse.json({ error: 'Shield returned no session id' }, { status: 502 })
+    }
+    return NextResponse.json({ session })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'encryption session failed' },
