@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ConnectWalletButton } from "@/components/connect-wallet-button"
+import { ConnectWalletButton } from "@/components/wallet-button"
 
 import { getSupportedCollaterals, type Collateral } from "@/lib/collaterals"
 import { 

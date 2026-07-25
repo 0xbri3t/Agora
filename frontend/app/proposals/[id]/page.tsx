@@ -17,7 +17,7 @@ import { CopilotPanel } from "@/components/copilot-panel"
 import { useChainId, useAccount } from "wagmi"
 // Removed blocking dialog imports
 // import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-// import { ConnectWalletButton } from "@/components/connect-wallet-button"
+import { ConnectWalletButton } from "@/components/wallet-button"
 import type { Proposal, UserOrder, MarketOption, UserBalance } from "@/lib/types"
 import { useGetProposalById } from "@/hooks/use-get-proposalById"
 import { useGetUserOrders } from "@/hooks/use-get-user-orders"

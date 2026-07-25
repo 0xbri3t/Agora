@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import Image from "next/image"
-import { ConnectButton } from "@rainbow-me/rainbowkit"
+import { WalletButton } from "@/components/wallet-button"
 import { useIsMounted } from "@/hooks/use-is-mounted"
 
 export function Navigation() {
@@ -25,7 +25,7 @@ export function Navigation() {
         </Link>
 
         <div className="flex items-center gap-4 sm:ml-2">
-          {mounted && <ConnectButton />}</div>
+          {mounted && <WalletButton />}</div>
       </div>
     </nav>
   )

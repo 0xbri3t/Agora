@@ -16,7 +16,8 @@ const statusStyles: Record<Proposal["state"], string> = {
   Cancelled: "text-muted-foreground",
 }
 
-function formatEndTime(proposal: Proposal): string {
+/** Only reads the timing fields, so the lighter hook shape works too. */
+function formatEndTime(proposal: Pick<Proposal, "state" | "auctionEndTime" | "liveEnd">): string {
   const seconds =
     proposal.state === "Auction" ? proposal.auctionEndTime : proposal.liveEnd
   if (!seconds) return "—"

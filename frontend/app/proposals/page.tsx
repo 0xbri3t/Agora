@@ -11,7 +11,7 @@ import { useAccount } from "wagmi"
 import { useEffect, useMemo } from "react"
 // Remove guard modal imports
 // import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-// import { ConnectWalletButton } from "@/components/connect-wallet-button"
+import { ConnectWalletButton } from "@/components/wallet-button"
 // import { useRouter, usePathname } from "next/navigation"
 import { useCreateOrder } from "@/hooks/use-mintPublic"
 import { useDeleteProposal } from "@/hooks/use-delete-proposal"
