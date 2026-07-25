@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useCopilotAsk, useCopilotInsights } from "@/hooks/use-copilot"
+import { LivingStoa } from "@/components/copilot/living-stoa"
+import { SignalFeed } from "@/components/copilot/signal-feed"
 
 const fmtUsdc = (v: string | null) => (v ? (Number(v) / 1e6).toFixed(2) : "—")
 
@@ -13,8 +15,20 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
   const { ask, answer, isAsking, error: askError } = useCopilotAsk(proposalId)
   const [question, setQuestion] = useState("")
 
+  // Keep the stoa and the signal feed alive without manual refreshes
+  useEffect(() => {
+    const id = setInterval(() => { void refetch() }, 10_000)
+    return () => clearInterval(id)
+  }, [refetch])
+
   const probability = insights?.impliedProbability
   const yesPct = probability ? probability.bps / 100 : null
+  // Capital share drives the stoa: auction split while bootstrapping,
+  // implied probability once trading takes over.
+  const yesShare = insights?.auction?.yesShareBps != null
+    ? insights.auction.yesShareBps / 10_000
+    : yesPct != null ? yesPct / 100
+    : insights ? 0.5 : null
 
   return (
     <Card>
@@ -31,41 +45,25 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
 
         {insights && (
           <>
-            {yesPct !== null && (
+            {yesShare !== null && (
               <div className="space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span>YES {yesPct.toFixed(1)}%</span>
-                  <span>NO {(100 - yesPct).toFixed(1)}%</span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all duration-500"
-                    style={{ width: `${yesPct}%` }}
-                  />
-                </div>
+                <LivingStoa
+                  yesShare={yesShare}
+                  bidsYes={insights.auction?.bidsYes ?? 0}
+                  bidsNo={insights.auction?.bidsNo ?? 0}
+                  leaning={insights.auction?.leaning ?? null}
+                />
                 <p className="text-xs text-muted-foreground">
-                  Implied probability from {probability!.basis} · {insights.source}
+                  {insights.auction
+                    ? `Uniswap CCA bootstrap · ${insights.auction.bidsYes + insights.auction.bidsNo} bids · ${fmtUsdc(insights.auction.committedUsdc)} USDC committed`
+                    : probability
+                      ? `Implied probability from ${probability.basis} · ${insights.source}`
+                      : "awaiting first signal · capital split evenly"}
                 </p>
               </div>
             )}
 
-            {insights.auction && (
-              <div className="space-y-1.5 border-t border-border pt-3">
-                <div className="flex justify-between text-sm">
-                  <span>Auction bids</span>
-                  <span className="font-mono tabular-nums">
-                    {insights.auction.bidsYes + insights.auction.bidsNo} ·{" "}
-                    {fmtUsdc(insights.auction.committedUsdc)} USDC
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Uniswap CCA bootstrap
-                  {insights.auction.leaning && insights.auction.leaning !== "BALANCED"
-                    ? ` · capital leaning ${insights.auction.leaning}`
-                    : " · capital split evenly"}
-                </p>
-              </div>
-            )}
+            <SignalFeed insights={insights} />
 
             {insights.arbitrage.spread && insights.arbitrage.spread.leading !== "TIED" && (
               <div className="rounded-md border border-border bg-muted/50 p-3 text-sm">
@@ -97,17 +95,19 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
         )}
 
         <form
-          className="flex gap-2"
+          className="flex items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault()
             void ask(question)
           }}
         >
+          <span className="font-mono text-sm text-muted-foreground" aria-hidden>&gt;</span>
           <Input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask about this market…"
+            placeholder="ask the agora…"
             disabled={isAsking}
+            className="font-mono"
           />
           <Button type="submit" disabled={isAsking || !question.trim()}>
             {isAsking ? "…" : "Ask"}
