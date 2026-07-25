@@ -49,30 +49,58 @@ test('full lifecycle: proposal -> auction -> Aqua trading -> TWAP -> resolve -> 
   const update = await mockPyth.createPriceFeedUpdateData(feedId, 3000_00000000n, 10_0000000n, -8, 3000_00000000n, 10_0000000n, now, now);
   await (await mockPyth.updatePriceFeeds([update], { value: await mockPyth.getUpdateFee([update]) })).wait();
 
+  const CCA_FACTORY = '0x000000001F26a0044BaA66024e7b6599c61963F8'; // canonical Uniswap factory (present in the fork)
   const impl = await deploy('Proposal.sol/Proposal.json', []);
-  const pm = await deploy('ProposalManager.sol/ProposalManager.json', [h.cfg.usdcAddress, await impl.getAddress(), h.maker.address]);
+  const pm = await deploy('ProposalManager.sol/ProposalManager.json', [h.cfg.usdcAddress, await impl.getAddress(), h.maker.address, CCA_FACTORY]);
   await (await pm.createProposal('Ship feature X?', 'Futarchy decides', 600, 3600, 'ETH', 10n ** 18n, 100n * 10n ** 18n, ethers.ZeroAddress, '0x', await mockPyth.getAddress(), feedId)).wait();
 
   const info = await pm.getProposalById(1);
   const proposal = new ethers.Contract(info.proposalAddress, art('Proposal.sol/Proposal.json').abi, h.provider);
 
-  // --- 2. Auction -> Live ---
+  // --- 2. Auction (Uniswap CCA) -> Live ---
   await (await h.usdc.mint(h.maker.address, 10n ** 15n)).wait();
   const treasury = await proposal.treasury();
   await (await h.usdc.connect(h.maker).approve(treasury, ethers.MaxUint256)).wait();
-  const auctionAbi = art('DutchAuction.sol/DutchAuction.json').abi;
-  const yesA = new ethers.Contract(await proposal.yesAuction(), auctionAbi, h.maker);
-  const noA = new ethers.Contract(await proposal.noAuction(), auctionAbi, h.maker);
-  await (await yesA.buyLiquidity(7000n * 10n ** 6n)).wait();
-  await (await noA.buyLiquidity(7000n * 10n ** 6n)).wait();
-  await h.provider.send('evm_increaseTime', [700]);
-  await h.provider.send('evm_mine', []);
-  await (await yesA.finalize()).wait();
-  await (await noA.finalize()).wait();
+  const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+  const permit2Abi = ['function approve(address token, address spender, uint160 amount, uint48 expiration)'];
+  const ccaAbi = art('ICCA.sol/ICCAuction.json').abi;
+  const yesA = new ethers.Contract(await proposal.yesAuction(), ccaAbi, h.maker);
+  const noA = new ethers.Contract(await proposal.noAuction(), ccaAbi, h.maker);
+
+  // CCA pulls bid currency through Permit2
+  await (await h.usdc.connect(h.maker).approve(PERMIT2, ethers.MaxUint256)).wait();
+  const permit2 = new ethers.Contract(PERMIT2, permit2Abi, h.maker);
+  await (await permit2.approve(h.cfg.usdcAddress, await yesA.getAddress(), (1n << 160n) - 1n, (1n << 48n) - 1n)).wait();
+  await (await permit2.approve(h.cfg.usdcAddress, await noA.getAddress(), (1n << 160n) - 1n, (1n << 48n) - 1n)).wait();
+
+  // Bid well above clearing with a budget far past graduation (min 1 token at floor)
+  const bid = async (auction) => {
+    const maxPrice = (await auction.clearingPrice()) * 4n;
+    const tx = await auction['submitBid(uint256,uint128,address,bytes)'](maxPrice, 7000n * 10n ** 6n, h.maker.address, '0x');
+    const receipt = await tx.wait();
+    const log = receipt.logs.map((l) => { try { return auction.interface.parseLog(l); } catch { return null; } })
+      .find((l) => l && l.name === 'BidSubmitted');
+    return log.args.id;
+  };
+  const yesBidId = await bid(yesA);
+  const noBidId = await bid(noA);
+
+  // Roll past the auction end block (CCAs run on blocks, not timestamps)
+  const endBlock = Number(await proposal.auctionEndBlock());
+  const current = await h.provider.getBlockNumber();
+  for (let i = current; i <= endBlock; i++) await h.provider.send('evm_mine', []);
+
+  await (await new ethers.Contract(info.proposalAddress, art('Proposal.sol/Proposal.json').abi, h.maker).settleAuctions()).wait();
   expect(Number(await proposal.state())).toBe(1); // Live
 
   const yesToken = await proposal.yesToken();
   const noToken = await proposal.noToken();
+
+  // Maker exits his bids (refund of unspent budget) and claims the auctioned tokens
+  await (await yesA.exitBid(yesBidId)).wait();
+  await (await yesA.claimTokens(yesBidId)).wait();
+  await (await noA.exitBid(noBidId)).wait();
+  await (await noA.claimTokens(noBidId)).wait();
 
   // --- 3. Register markets + seed proposal doc (what chainService sync does) ---
   svc.registerMarket(yesToken, { proposalId: '1', side: 'approve' });

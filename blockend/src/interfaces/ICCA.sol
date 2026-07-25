@@ -28,6 +28,12 @@ interface ICCAFactory {
 }
 
 interface ICCAuction {
+    // --- events (subset used by the indexer/frontend) ---
+    event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount);
+    event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded);
+    event TokensClaimed(uint256 indexed bidId, address indexed owner, uint256 tokensFilled);
+    event ClearingPriceUpdated(uint256 blockNumber, uint256 clearingPriceQ96);
+
     // --- bidding ---
     function submitBid(uint256 maxPriceQ96, uint128 amount, address owner, bytes calldata hookData)
         external

@@ -10,7 +10,6 @@ const { getProvider, getSigner } = require('../config/ethers');
 // Load ABIs from JSON files (kept minimal)
 const PM_ABI = require('../abi/ProposalManager.json').abi;
 const PROPOSAL_ABI = require('../abi/Proposal.json').abi;
-const AUCTION_ABI = require('../abi/DutchAuction.json').abi;
 const TOKEN_MIN_ABI = require('../abi/MarketToken.json').abi;
 
 function getContract(address, abi, withSigner = false) {
@@ -782,15 +781,17 @@ function startProposalCreatedWatcher({ manager, confirmations = 0, fromBlock } =
   })();
 }
 
-// Finalize helpers
+// Settle helpers (Uniswap CCA era)
+// Auctions are Continuous Clearing Auctions; once past their end block the
+// Proposal's settleAuctions() checkpoints both CCAs and activates or cancels.
 
-async function attemptFinalizeAuction(auctionAddress) {
-  if (!auctionAddress) throw new Error('auctionAddress required');
+async function attemptSettleProposal(proposalAddress) {
+  if (!proposalAddress) throw new Error('proposalAddress required');
   try {
     const { hash, receipt } = await sendTx({
-      address: auctionAddress,
-      abi: AUCTION_ABI,
-      method: 'finalize',
+      address: proposalAddress,
+      abi: PROPOSAL_ABI,
+      method: 'settleAuctions',
       args: []
     });
     return { ok: true, hash, blockNumber: Number(receipt?.blockNumber || 0) };
@@ -799,129 +800,52 @@ async function attemptFinalizeAuction(auctionAddress) {
   }
 }
 
-async function canFinalizeAuction(auctionAddress) {
-  try {
-    const c = getContract(auctionAddress, AUCTION_ABI, false);
-
-    // Read finalized + end time first
-    const [isFinalized, endTimeBn] = await Promise.all([
-      c.isFinalized(),
-      c.END_TIME(),
-    ]);
-    if (isFinalized) return { can: false, reason: 'already-finalized' };
-
-    // Chain time (fallback to wall clock if provider fails)
-    let nowTs;
-    try {
-      const block = await getProvider().getBlock('latest');
-      nowTs = Number(block?.timestamp || 0);
-    } catch (_) {
-      nowTs = Math.floor(Date.now() / 1000);
-    }
-    const endTime = Number(endTimeBn);
-    const endPassed = nowTs >= endTime;
-
-    // If ended by time, we can finalize regardless of cap
-    if (endPassed) return { can: true, reason: 'ended' };
-
-    // Otherwise, check early-finalize threshold: >=99% cap
-    let marketTokenAddr;
-    try { marketTokenAddr = await c.MARKET_TOKEN(); } catch (_) { marketTokenAddr = undefined; }
-    if (!marketTokenAddr) return { can: false, reason: 'not-ready' };
-
-    try {
-      const t = getContract(marketTokenAddr, TOKEN_MIN_ABI, false);
-      const [totalSupplyBn, capBn] = await Promise.all([
-        t.totalSupply(),
-        t.cap()
-      ]);
-      const totalSupply = typeof totalSupplyBn === 'bigint' ? totalSupplyBn : BigInt(totalSupplyBn);
-      const cap = typeof capBn === 'bigint' ? capBn : BigInt(capBn);
-      const earlyThreshold = (cap * 99n) / 100n;
-      if (totalSupply >= earlyThreshold) return { can: true, reason: 'cap-99' };
-    } catch (_) {
-      // ignore cap read errors and treat as not-ready until time end
-    }
-
-    return { can: false, reason: 'not-ready' };
-  } catch (e) {
-    return { can: false, reason: `read-error:${e.message}` };
-  }
-}
-
-// Scan DB for auctions and try to finalize them only if proposal is in 'auction' state
+// Scan DB for proposals in 'auction' state and settle the ones past their end block
 async function monitorAuctionsToFinalize({ limit = 20 } = {}) {
   const signer = getSigner();
   if (!signer) {
     return { tried: 0, finalized: 0 };
   }
-  const Auction = require('../models/Auction');
   const Proposal = require('../models/Proposal');
-  const candidates = await Auction.find({}).sort({ updatedAt: 1 }).limit(limit);
-  console.log(`[finalize-auction] scan: candidates=${candidates?.length || 0}`);
+  const candidates = await Proposal.find({ state: 'auction' }).sort({ updatedAt: 1 }).limit(limit);
   if (!candidates || !candidates.length) return { tried: 0, finalized: 0 };
 
-  let finalizedCount = 0;
-  let tried = 0;
+  let currentBlock;
+  try {
+    currentBlock = await getProvider().getBlockNumber();
+  } catch (e) {
+    console.warn(`[settle-auctions] cannot read block number: ${e.message}`);
+    return { tried: 0, finalized: 0 };
+  }
 
-  for (const a of candidates) {
-    const addr = a.auctionAddress;
+  let tried = 0;
+  let settled = 0;
+  for (const p of candidates) {
+    const addr = p.proposalAddress;
     if (!addr) continue;
 
-    let proposalAddr;
     try {
-      const p = await Proposal.findOne({ id: a.proposalId });
-      proposalAddr = p?.proposalAddress;
-    } catch (_) {}
-    if (!proposalAddr) continue;
-
-    let stateNum = -1;
-    try {
-      const pc = getContract(proposalAddr, PROPOSAL_ABI, false);
-      const st = await pc.state();
-      stateNum = Number(st);
+      const pc = getContract(addr, PROPOSAL_ABI, false);
+      const [stateNum, endBlock] = await Promise.all([pc.state(), pc.auctionEndBlock()]);
+      if (Number(stateNum) !== 0) continue; // only Auction state
+      if (currentBlock < Number(endBlock)) continue; // not over yet
     } catch (e) {
-      console.warn(`[finalize-auction] could not read proposal state ${proposalAddr}: ${e.message}`);
+      console.warn(`[settle-auctions] read failed ${addr}: ${e.message}`);
       continue;
     }
 
-    if (stateNum !== 0) continue; // only auction state
-
-    // Check readiness before attempting finalize to avoid stuck pending
-    const readiness = await canFinalizeAuction(addr);
-    if (!readiness.can) {
-      if (readiness.reason && readiness.reason !== 'not-ready') {
-        console.log(`[finalize-auction] skip: proposalId=${a.proposalId} auction=${addr} reason=${readiness.reason}`);
-      }
-      continue;
-    }
-
-    let signerAddr = 'unknown';
-    let nonce = 'unknown';
-    try {
-      signerAddr = await signer.getAddress();
-      nonce = await signer.getNonce();
-    } catch (_) {}
-    console.log(`[finalize-auction] attempting finalize: proposalId=${a.proposalId} proposal=${proposalAddr} auction=${addr} by=${signerAddr} nonce=${nonce}`);
-    const startTime = Date.now();
     tried++;
-    try {
-      const res = await attemptFinalizeAuction(addr);
-      const elapsed = Date.now() - startTime;
-      if (res.ok) {
-        finalizedCount++;
-        try { await Auction.updateOne({ _id: a._id }, { $set: { finalized: true } }); } catch (_) {}
-        console.log(`[finalize-auction] success: proposalId=${a.proposalId} auction=${addr} tx=${res.hash} block=${res.blockNumber} elapsed=${elapsed}ms`);
-      } else {
-        console.warn(`[finalize-auction] fail: proposalId=${a.proposalId} auction=${addr} error=${res.error} elapsed=${elapsed}ms`);
-      }
-    } catch (err) {
-      const elapsed = Date.now() - startTime;
-      console.error(`[finalize-auction] exception: proposalId=${a.proposalId} auction=${addr} error=${err?.message || err} elapsed=${elapsed}ms`);
+    const res = await attemptSettleProposal(addr);
+    if (res.ok) {
+      settled++;
+      console.log(`[settle-auctions] settled: proposal=${addr} tx=${res.hash}`);
+      try { await syncProposalByAddress(addr); } catch (_) {}
+    } else {
+      console.warn(`[settle-auctions] fail: proposal=${addr} error=${res.error}`);
     }
   }
 
-  return { tried, finalized: finalizedCount };
+  return { tried, finalized: settled };
 }
 
 // Resolve helpers for proposals that finished Live period
@@ -1028,8 +952,7 @@ module.exports = {
 
   // Auction finalize monitor + helpers
   monitorAuctionsToFinalize,
-  attemptFinalizeAuction,
-  canFinalizeAuction,
+  attemptSettleProposal,
 
   // Proposal resolve monitor + helpers
   monitorProposalsToResolve,
