@@ -77,8 +77,8 @@ export function PixelAgora({ className }: { className?: string }) {
     <div className={className}>
       <PixelatedCanvas
         src={src}
-        width={620}
-        height={560}
+        width={820}
+        height={700}
         cellSize={6}
         dotScale={0.72}
         shape="square"

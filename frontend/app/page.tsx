@@ -12,7 +12,7 @@ export default function HomePage() {
   return (
     <div className="relative">
       <section className="flex min-h-[calc(100vh-4rem-1.5rem)] flex-col justify-between pb-6">
-        <div className="container mx-auto grid flex-1 grid-cols-1 gap-8 px-6 py-10 md:py-14 lg:grid-cols-2 lg:gap-4">
+        <div className="container mx-auto grid flex-1 grid-cols-1 gap-8 px-6 py-10 md:py-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-2">
           <div className="flex flex-col justify-center gap-6">
             <h1 className="max-w-xl font-display text-[clamp(3rem,8vw,7rem)] leading-[0.95] text-foreground">
               Markets decide.
