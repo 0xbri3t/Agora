@@ -1,13 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-  <rect width="16" height="16" fill="#141210"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="70 48 470 470">
+  <rect x="70" y="48" width="470" height="470" fill="#141210"/>
   <g fill="#e9e5de">
-    <rect x="1" y="1" width="14" height="2"/>
-    <rect x="1" y="4" width="2" height="7"/>
-    <rect x="13" y="4" width="2" height="7"/>
-    <rect x="4" y="7" width="2" height="4"/>
-    <rect x="7" y="5" width="2" height="6"/>
-    <rect x="10" y="9" width="2" height="2"/>
-    <rect x="1" y="11" width="14" height="2"/>
-    <rect x="0" y="13" width="16" height="1"/>
+    <polygon points="85,112 508,84 508,76 528,76 528,117 85,141"/>
+    <rect x="100" y="163" width="88" height="35"/>
+    <rect x="433" y="163" width="78" height="35"/>
+    <polygon points="117,198 172,198 177,452 112,452"/>
+    <polygon points="447,198 497,198 502,452 442,452"/>
+    <rect x="205" y="341" width="50" height="111"/>
+    <rect x="283" y="274" width="50" height="178"/>
+    <rect x="356" y="208" width="55" height="244"/>
+    <rect x="80" y="458" width="450" height="32"/>
   </g>
 </svg>
