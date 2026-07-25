@@ -63,6 +63,12 @@ async function pushOnce({ provider, signer, windowMs = 6 * 60 * 60 * 1000 }) {
       results.push({ proposalId: p.id, twapYes, twapNo, txHash: receipt.hash });
     } catch (e) {
       console.error(`twap push failed for proposal ${p.id}:`, e.message);
+      // A cached NonceManager count drifts when another sender uses the same
+      // key (or a tx is dropped), and every later push then fails the same
+      // way. Resync so the next interval starts from the chain's nonce.
+      if (/nonce/i.test(e.message) && typeof signer.reset === 'function') {
+        signer.reset();
+      }
     }
   }
   return results;

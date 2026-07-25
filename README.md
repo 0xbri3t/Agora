@@ -1,65 +1,113 @@
-# Futarchy-DeFi-Protocol
-Futarchy-powered DeFi governance on Ethereum Sepolia: YES/NO markets trade as fill-or-kill lots on 1inch Aqua/SwapVM, with Pyth pull oracles and volume-weighted TWAP resolution.
+# Agora
 
-Currently live on!: 
-- [Agora landing page](https://www.agora.com)
-- [Api docs](https://api.agora.com)
+Futarchy decision markets on Ethereum Sepolia: governance proposals become YES/NO markets whose prices *are* the decision. Liquidity bootstraps on **Uniswap Continuous Clearing Auctions**, continuous trading runs self-custodially on **1inch Aqua/SwapVM**, market data is indexed by **The Graph**, and **Pyth** anchors the subject asset's reference price.
+
+Currently live on:
+- [Agora landing page](https://www.futarfi.com)
+- [API docs](https://api.futarfi.com)
 
 ---
 
-Developers: [Arnau Briet](@bri3t) & [Pau Gallego](@PauGallego)
+Developers: [Arnau Briet](@bri3t)
 
 Mentor: [Alex Arteaga](@alex-alra-arteaga)
 
 ---
 
-## Introduction
+## The Issue
 
-Agora is a futarchy-driven prediction market on Ethereum Sepolia, where proposals become tradable YES/NO markets. Liquidity is bootstrapped via parallel Dutch auctions (2×→0) in which participants directly purchase the initial supply—no liquidity bots; continuous trading then runs fully on-chain on **1inch Aqua**: makers ship fill-or-kill lot quotes (funds stay in their wallets), takers fill them through the SwapVM router at exact prices, and cancels are a `dock`. A custom SwapVM instruction enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) ≤ 1`. Resolution uses volume-weighted TWAPs computed from the on-chain fills and pushed by an attestor: the winning side captures value, while the losing side redeems its MarketTokens for underlying collateral (USDC) pro-rata, ensuring a deterministic unwind.
+Civilization runs on correct capital allocation. Corruption and conflicts of interest undermine it — nowhere more clearly than when the managerial class is not aligned with its stakeholders: taxpayers in a democracy, investors in a company, holders in a DAO.
+
+Agora solves this: decisions are made by markets that put a price on their consequences, taken by people who back their view with capital.
+
+---
+
+## Stack
+
+| Partner | Role in Agora |
+|---|---|
+| **Uniswap CCA** | Market bootstrap. Every proposal deploys two Continuous Clearing Auctions (YES/NO) through the canonical `ContinuousClearingAuctionFactory` — fair uniform-price liquidity seeding with a graduation gate and native refunds. |
+| **1inch Aqua / SwapVM** | Continuous trading. Makers ship fill-or-kill lot quotes with funds staying in their wallets; takers fill through the SwapVM router at exact prices. A custom SwapVM instruction (`AgoraComplement`) rejects lots that cannot be genuine forecasts — dust and fat-finger prices — at VM execution time. |
+| **The Graph** | Data layer. A Sepolia subgraph indexes proposals, Aqua lot quotes, fills and attestor-pushed TWAPs — and feeds the Agora copilot (implied probability, arbitrage watch, TWAP trend). |
+| **Pyth** | Oracle. Pull-based reference price of the subject asset at market creation (it also sets the CCA floor price); the options settlement design reads Pyth again at expiry. |
 
 ---
 
 ## Understanding Futarchy
 
-Futarchy—coined by economist Robin Hanson—means “vote on values, bet on means.” A community first agrees on what it wants to maximize (the value: a clear, measurable objective), and then lets prediction markets determine which policy is most likely to improve that objective. Instead of counting raw votes on complex means, we price beliefs about outcomes.
+Futarchy — coined by economist Robin Hanson — means "vote on values, bet on beliefs." A community first agrees on what it wants to maximize (a clear, measurable objective), then lets markets determine which policy is most likely to improve it. Instead of counting raw votes on complex means, we price beliefs about outcomes.
 
-Conceptually, futarchy runs two parallel “worlds” for any proposal:
+Conceptually, futarchy runs two parallel "worlds" for any proposal:
 
 - If it passes (YES-world), what does the objective look like?
-- If it doesn’t (NO-world), what does the objective look like?
+- If it doesn't (NO-world), what does the objective look like?
 
-Whichever world the market values more—because participants expect it to lead to a better result—is the one the community adopts.
+Whichever world the market values more is the one the community adopts.
+
+Concretely: suppose OpenAI is voting on whether to replace its CEO. Two markets open, trading OpenAI's expected valuation if the proposal passes versus if it fails. If the pass-market prices OpenAI higher, the proposal executes.
 
 ---
 
-## Problem and Solution
+## Agora vs Polymarket
+
+Polymarket tells you what will happen. Agora decides what should happen.
+
+On Polymarket you trade the probability of an event. The market is a spectator — the event happens with or without it.
+
+On Agora you price the consequences of a decision: two markets price the same asset in two parallel futures — one where the proposal executes, one where it doesn't.
+
+Whichever future the market values higher is the one that will execute. The price doesn't predict the outcome. It picks it.
+
+And we don't just get a yes or a no — we get the decision's impact, in dollars.
+
+---
+
+## The Problem and the Solution
 
 ### The Problem
-Traditional DAO and DeFi governance frameworks rely heavily on voting mechanisms that do not always represent the most informed or economically efficient decision. Votes can be influenced by social bias, poor coordination, or lack of technical understanding, resulting in choices that don’t maximize long-term protocol value.  
-Worse, voter apathy and rational irrationality mean individuals have little incentive to even learn about complex policies—the probability that any single vote changes the outcome is essentially negligible.
+Traditional DAO and DeFi governance relies on voting mechanisms that do not always produce the most informed or economically efficient decision. Votes are swayed by social bias, poor coordination, or lack of technical understanding. Worse, voter apathy and rational irrationality mean individuals have little incentive to even learn about complex policies — the probability that any single vote changes the outcome is essentially negligible.
 
 ### The Solution
-Agora introduces futarchy-based decision-making, where predictions, not raw votes, guide choices. Through prediction markets, participants financially back the outcome they believe will create the most value. Market prices become real-time, tamper-resistant signals of collective confidence.
+Agora replaces raw votes with priced beliefs:
 
-- **Aligns incentives:** those who believe they have superior information risk capital to correct prices, and in doing so reveal that information to everyone.
-- **Reduces rhetoric:** replaces speculative debate with prices that embed probabilities about outcomes.
-- **Skin in the game:** if you’re right, you profit; if you’re wrong, you lose money—you literally put your money where your mouth is.
-- **Evolutionary pressure:** poor forecasters lose capital and thus lose influence over time; skilled forecasters gain capital and influence, improving market signal quality as the system matures.
+- **Aligns incentives:** those with superior information risk capital to correct prices — and reveal that information to everyone.
+- **Reduces rhetoric:** replaces speculative debate with prices that embed expectations about outcomes.
+- **Skin in the game:** if you're right, you profit; if you're wrong, you lose money.
+- **Evolutionary pressure:** poor forecasters lose capital and influence over time; skilled forecasters gain both, improving signal quality as the system matures.
 
 ---
 
 ## Solving the Cold Start: Liquidity at Launch
 
-A major pain point for any new protocol/market is the cold start: thin books, wide spreads, and noisy first prints caused by insufficient volume/liquidity. Early trades are easy to push around, UX suffers, and governance signals get distorted.
+A major pain point for any new market is the cold start: thin books, wide spreads, and noisy first prints. Early trades are easy to push around, and governance signals get distorted.
 
-Agora bootstraps each market with **Uniswap Continuous Clearing Auctions**: every proposal deploys two CCAs (YES and NO) through the canonical `ContinuousClearingAuctionFactory` on Sepolia. Participants bid a budget with a max price; the uniform clearing price starts at a floor (a tenth of the Pyth reference price) and rises with demand as the token supply releases block by block.
+Agora bootstraps each market with **Uniswap Continuous Clearing Auctions**: every proposal deploys two CCAs (YES and NO) through the canonical `ContinuousClearingAuctionFactory`. Participants bid a budget with a max price; the uniform clearing price starts at a floor (a tenth of the Pyth reference price) and rises with demand as the token supply releases block by block.
 
 - **Fair price discovery:** everyone in a block pays the same clearing price; higher max prices get allocated first. No gas wars, no sniping.
 - **Graduation gate:** each CCA carries a `requiredCurrencyRaised` threshold derived from the proposal's `minToOpen`. Both sides must graduate for the market to open — the on-chain equivalent of "enough interest to be worth trading".
 - **Native refunds:** if either side fails to graduate, the proposal cancels and bidders exit their bids on the CCA for a full refund. The Treasury never touches funds pre-graduation.
 - **Anchoring the open:** the final clearing prices anchor the YES/NO quotes when continuous trading starts, tightening spreads and improving subsequent price discovery.
 
-On graduation, `settleAuctions()` sweeps both raised pots (net of the Uniswap protocol fee) into the market's Treasury — the collateral that later pays pro-rata redemptions at resolution — and the market transitions to continuous on-chain trading on 1inch Aqua, leveraging the auction's depth and reference price to deliver tighter spreads, better fills, and a cleaner signal for TWAP-based settlement later on.
+On graduation, `settleAuctions()` sweeps both raised pots (net of the Uniswap protocol fee) into the market's Treasury — the collateral that funds resolution — and the market transitions to continuous on-chain trading on 1inch Aqua, leveraging the auction's depth and reference price for tighter spreads, better fills, and a cleaner TWAP signal.
+
+---
+
+## Where Your Money Goes
+
+During trading: auction proceeds sit in each side's Treasury pot; Aqua order-book trades are wallet-to-wallet.
+
+At resolution:
+
+> **The winning market, whether YES or NO, receives butterfly spread options whose peak sits exactly where that market priced its token — the winning TWAP. Maximum payout if the real asset lands on the prediction. The losing market gets its money back via a pro-rata claim.**
+
+Why it's built this way:
+
+- **Winners are paid for calibration, not cheerleading.** The butterfly pays `max(0, W − |spot − peak|)` per contract, cash-settled against Pyth at expiry: landing on the forecast pays the most, overshooting the hype pays nothing. The reward matures *after* the decision — skin in the game that survives the vote.
+- **Losers' bets are called off.** Their tokens forecast a world that never happened — a counterfactual can't be scored, so the bet is refunded pro-rata from their own pot (Hanson's "called-off bets"; the same reason MetaDAO reverts its failing market).
+- **Nobody writes the options.** A butterfly's payoff is capped at its wing width, so the winning pot itself fully collateralizes every contract it mints — no counterparty, no solvency risk. (The hackathon demo mints them as mock ERC20s; the mechanism is the design above.)
+- **Manipulation hits three walls:** hold the TWAP against arbitrage for the whole window, watch your inflated TWAP become your butterfly's peak — a price reality won't visit — and every dollar you overpaid went to honest counterparties.
+
+---
 
 ## System Flow
 ![System Flow](https://github.com/user-attachments/assets/22721499-0fdf-4c89-bddd-fa4eb14acbb8)
@@ -68,94 +116,99 @@ On graduation, `settleAuctions()` sweeps both raised pots (net of the Uniswap pr
 
 ## Design Decisions
 
-- **Ethereum Sepolia:** Home of the live 1inch Aqua deployment; full Foundry/Viem/Wagmi tooling.
-- **Pyth:** Used exclusively to fetch the **initial price** of the subject token at market creation. Continuous update models are not implemented.
-- **Dutch Auction for Liquidity:** Ensures fair and balanced initial market capitalization.
-- **Aqua Lot Trading:** Post-auction price discovery runs on 1inch Aqua/SwapVM — self-custodial fill-or-kill lots, exact prices, on-chain settlement.
-- **Market Tokens as Rewards:** Winners receive OPTIONS tokens bought with the treasury; losers can claim proportional treasury.
-- **TWAP Resolution:** An attestor pushes volume-weighted TWAPs computed from the on-chain Aqua fills; `Proposal.resolve()` settles from those values.
+- **Ethereum Sepolia:** home of the live 1inch Aqua deployment and the canonical Uniswap CCA factory; full Foundry/Viem/Wagmi tooling.
+- **Uniswap CCA for liquidity:** fair, uniform-price bootstrap with graduation gates and native refunds — no hand-rolled auction code.
+- **Aqua lot trading:** post-auction price discovery runs on 1inch Aqua/SwapVM — self-custodial fill-or-kill lots, exact prices, on-chain settlement.
+- **TWAP resolution:** an attestor pushes volume-weighted TWAPs computed from on-chain Aqua fills; `Proposal` resolves by comparing TWAP(YES) vs TWAP(NO).
+- **Butterfly settlement:** winners receive butterfly options peaked at their winning TWAP; losers claim pro-rata — see "Where Your Money Goes".
+- **Pyth:** subject-asset reference price at creation (and the CCA floor); the options design settles against Pyth at expiry.
 
 ---
 
-## Contracts flow
+## Contracts Flow
 ![System Flow](https://github.com/user-attachments/assets/738b7a25-923b-4f21-bfc8-13e9ac591e9f)
 
 1. **Proposal Creation**
-   - When a new proposal is created, the market deployer defines:
-     - **Subject Token:** the asset or variable being evaluated.
-     - **Minimum Supply:** the minimum total amount of liquidity required for the market to initialize.
-     - **Maximum Cap:** the total cap of liquidity allowed in the market.
-     - **Optional Call Data and Target Contract:** an optional payload and target contract to be executed if the market result validates the proposed decision.
-   - The initial reference price of the subject token is fetched from **Pyth**, ensuring an objective baseline.
+   - The proposer defines the **subject token** (the asset being evaluated), **minimum supply** (`minToOpen`), **maximum cap**, and optional **target contract + calldata** to execute if the market approves.
+   - The initial reference price of the subject token is fetched from **Pyth**.
 
-2. **Initial Dutch Auction (Liquidity Seeding)**
-   - A short Dutch auction is conducted solely to bootstrap **initial liquidity**.
-   - Participants purchase **YES** or **NO** positions at a price that decreases linearly over time.
-   - This ensures balanced liquidity distribution before transitioning into open trading.
+2. **CCA Bootstrap (Liquidity Seeding)**
+   - `initialize()` deploys two Uniswap CCAs (YES/NO) via the canonical factory, pre-mints the outcome-token supply to them and builds the auction parameters.
+   - Participants bid through Permit2; `settleAuctions()` graduates both sides into a Live market — or cancels with full CCA-native refunds.
 
 3. **Aqua Trading Phase**
-   - After the liquidity phase, trading moves to **1inch Aqua**: makers ship fill-or-kill lot quotes for **YES/NO tokens**, takers fill them through the SwapVM router.
-   - Funds stay in maker wallets until fill time; every trade settles on-chain at an exact price.
+   - Makers ship fill-or-kill lot quotes for YES/NO tokens; takers fill them through the SwapVM router. Funds stay in maker wallets until fill time; every trade settles on-chain at an exact price.
+   - `AgoraComplement` rejects any fill that would let `YES + NO` exceed 1 USDC.
 
-4. **Resolution Phase**
-   - Upon reaching the resolution date or condition, the **subject token’s** price is compared against its initial reference value.
-   - The outcome determines whether the **YES** or **NO** side wins.
-   - The **winning side receives OPTIONS tokens**, which are **purchased from the treasury using the treasury of the winning token and distributed to holders of the winning token**.
+4. **Resolution**
+   - The attestor pushes volume-weighted TWAPs computed from the on-chain fills.
+   - `TWAP(YES) > TWAP(NO)` → the proposal executes its target calldata; otherwise the status quo stands.
 
 5. **Claim and Settlement**
-   - The **winning side** is allocated OPTIONS tokens bought with the treasury and delivered to holders of the winning token.
-   - The **losing side** can **claim a proportional share of the treasury**, ensuring liquidity fairness and equitable capital distribution.
+   - The **winning side** claims butterfly options peaked at its winning TWAP.
+   - The **losing side** claims a pro-rata share of its own pot — its conditional bet is called off.
 
 ---
 
-## Main code Architecture
+## Main Code Architecture
 
 ```text
-├── Backend 
-│
-├── frontend (Next.js + Wagmi + Viem)
-│
-└── Blockend
-       ├── DutchAuction.sol
-       └── Proposal.sol
-       ├── ProposalManager.sol
-       ├── MarketToken.sol
-       ├──Treasury.sol
+├── backend            Node/Express + MongoDB — Aqua event indexing, TWAP attestor, copilot API
+├── frontend           Next.js + Wagmi/Viem — markets UI, CCA bidding (Permit2), claims
+├── subgraph           The Graph — proposals, quotes, fills, TWAPs on Sepolia
+└── blockend           Foundry
+       ├── core/       Proposal.sol · ProposalManager.sol · Treasury.sol
+       ├── aqua/       AgoraQuoteBuilder.sol · AgoraComplement.sol
+       ├── tokens/     MarketToken.sol
+       └── interfaces/ ICCA.sol · …
 ```
 
 ### Frontend/Backend Interaction
 
-* The **frontend** uses **Viem** for contract interaction, managing auctions, orders, and claims.
+* The **frontend** uses **Viem/Wagmi** for contract interaction — CCA bids, Aqua fills, claims.
 * The **backend** indexes Aqua events (`Shipped`/`Swapped`/`Docked`) into the order book and pushes volume-weighted TWAPs on-chain as attestor.
-
-
----
-
-## Technical Highlights
-
-* **Proposal Parameters:** Each market defines min supply, cap, and optional executable logic.
-* **Market-Specific Tokens:** Each market mints unique YES/NO tokens tied to that instance.
-* **On-chain Settlement:** Every trade is an on-chain Aqua fill; resolution reads TWAPs computed from those fills.
-* **Economic Security:** The system isolates risks and rewards per market, maintaining predictability.
-* **EVM Compatibility:** Standard Ethereum tooling (Foundry, wagmi/viem, ethers).
+* The **copilot** answers over live market data from the subgraph (Mongo fallback on local forks): relative valuation of the two worlds, the spread between them, thin sides with little maker consensus, and TWAP trend.
 
 ---
 
-## Local Setup
+## The Graph Integration (ETHGlobal Lisbon 2026)
 
-```bash
-# One command: MongoDB + anvil (Sepolia fork with live Aqua) + contracts + backend + frontend
-./dev.sh
+The **Agora subgraph** is the copilot's only source of chain data — no mocks, no static fixtures.
 
-# Stop / status / logs / fresh DB
-./dev.sh stop | status | logs [svc] | reset
-```
+| Piece | Where |
+|---|---|
+| Live subgraph (Sepolia) | [`agora` on Subgraph Studio](https://thegraph.com/studio/subgraph/agora) — queries: `https://api.studio.thegraph.com/query/1756977/agora/v0.0.1` |
+| Schema + mappings | `subgraph/schema.graphql`, `subgraph/src/{proposal-manager,proposal,aqua,router,cca}.ts` |
+| Copilot analytics | `backend/src/services/copilotService.js` |
+| Copilot API | `backend/src/routes/copilot.js` — `/api/copilot/:id/insights`, `/api/copilot/:id/ask` |
+| Copilot UI | `frontend/components/copilot-panel.tsx` |
 
-Requirements: Docker, Foundry, Node, pnpm. Set `SEPOLIA_RPC_URL` in `blockend/.env`.
+What it indexes: proposals and their lifecycle, the two Uniswap CCAs per proposal with every bid, the 1inch Aqua lot quotes and fills, and attestor TWAP pushes.
 
----
+Indexed entities:
 
-Agora is an experimental futarchy-driven prediction market designed to enable transparent, economically rational, and verifiable decision-making in decentralized systems.
+| Entity | What it holds |
+|---|---|
+| `Proposal` | title, status, latest TWAPs, winner |
+| `Auction` | the Uniswap CCA per side: clearing price, bid count, committed capital |
+| `Bid` | bidder, max price, budget, tokens filled / refund once exited |
+| `Market` | YES/NO side, volume, last price, open quote count |
+| `Quote` | Aqua fill-or-kill lot: size, price, OPEN/FILLED/CANCELLED |
+| `Fill` | swap through the router: taker, amounts, price |
+| `TwapPoint` | TWAP history per proposal |
+| `Maker` | quote/fill counts, volume |
+
+Prices follow the contract convention (USDC 6d per 1e18 outcome token).
+
+What the agent does with it — it reasons, it does not print rows:
+- **Implied probability** of the proposal passing, from TWAPs (or best asks before any TWAP exists)
+- **Cross-maker arbitrage**: flags when the cheapest YES plus the cheapest NO costs under 1 USDC (a risk-free basket), and when a single maker quotes a pair summing over 1 USDC — the invariant the `AgoraComplement` VM instruction enforces locally, watched here market-wide
+- **Bootstrap read** during the auction: how much capital each side has committed, which way it leans, and a warning when one bidder alone carries a side
+- **TWAP trend** toward resolution
+
+Free-form questions go through `/api/copilot/:id/ask`, answered from the same subgraph data (with Claude when `ANTHROPIC_API_KEY` is set, and a deterministic reading otherwise).
+
+Deploy your own: `cd subgraph && npx graph auth <key> && npm run deploy`, then point `SUBGRAPH_URL` at the resulting endpoint.
 
 ---
 
@@ -182,7 +235,11 @@ Run tests: `cd blockend && forge test --match-path "test/cca/*"` (needs `SEPOLIA
 
 ## 1inch Aqua / SwapVM Integration (ETHGlobal Lisbon 2026)
 
-Agora's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) enforces the futarchy no-arbitrage invariant `price(YES) + price(NO) <= 1 USDC` at VM execution time.
+Agora's continuous-trading layer runs on **1inch Aqua + SwapVM**: maker quotes become fill-or-kill lot strategies shipped to the live Aqua core, and fills execute on-chain through a `LimitSwapVMRouter`. Maker funds never leave their wallet (Aqua self-custody); shipped virtual balances encode each lot's exact price and size; cancel = `dock`. A **custom SwapVM instruction** (via the `_extruction` opcode) sanity-checks every guarded lot at VM execution time.
+
+Agora prices are *forecasts*, not probabilities: an outcome token trades at what the subject asset is worth in that world ("ETH is ~3000 USDC if this passes"), so YES and NO never sum to one — that identity belongs to Polymarket-style venues. And the gap between the two worlds is precisely the market's output: a proposal that burns half the supply *should* price them far apart, so nothing on-chain second-guesses it.
+
+What `AgoraComplement` rejects is a lot that cannot be a forecast at all: zero balances, or a price outside a deliberately huge band around the market's reference (a hundred-fold by default). Those are typos and dust, and since resolution settles on a TWAP of the fills, letting them through would corrupt the number that decides the proposal. Manipulation proper is answered elsewhere by design — the TWAP window, arbitrage against a mispriced side, and a butterfly payout that only pays if reality reaches the price you pushed.
 
 ### Deployed contracts (Sepolia)
 
@@ -191,6 +248,7 @@ Agora's continuous-trading layer is being re-built on **1inch Aqua + SwapVM**: m
 | Aqua core (1inch, official) | [`0x499943E74FB0cE105688beeE8Ef2ABec5D936d31`](https://sepolia.etherscan.io/address/0x499943E74FB0cE105688beeE8Ef2ABec5D936d31) | Not redeployed — we ship/dock/pull/push against it |
 | LimitSwapVMRouter (our deployment) | [`0x4CF2713D08C5E439409b56efA4027F25EB0F6431`](https://sepolia.etherscan.io/address/0x4CF2713D08C5E439409b56efA4027F25EB0F6431) | Official SwapVM code; the canonical Sepolia router lacks limit opcodes |
 | AgoraQuoteBuilder | [`0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1`](https://sepolia.etherscan.io/address/0xc651dDD1DAeC92Af51B32bA381e48Ac975a3b2D1) | On-chain program/order/taker-data encoder |
+| AgoraComplement (custom SwapVM instruction) | [`0x4A79c6C4337DbE1729bfB39F3d51b586Cd6Fa75E`](https://sepolia.etherscan.io/address/0x4A79c6C4337DbE1729bfB39F3d51b586Cd6Fa75E) | Rejects dust and fat-finger lots that would corrupt the settling TWAP, via the `_extruction` opcode |
 | MockUSDC (demo) | [`0x34ad23A27Ae8A562928234D4415eD7225a44bB2E`](https://sepolia.etherscan.io/address/0x34ad23A27Ae8A562928234D4415eD7225a44bB2E) | 6-decimals demo collateral |
 | ProposalManager | [`0x8C069587f3626A0d31D202e93de446871Ec1EdF5`](https://sepolia.etherscan.io/address/0x8C069587f3626A0d31D202e93de446871Ec1EdF5) | Agora governance stack (Pyth-priced proposals) |
 
@@ -214,11 +272,24 @@ Run tests: `cd blockend && forge test --match-path "test/aqua/*"` (needs `SEPOLI
 
 ---
 
+## Local Setup
+
+```bash
+# One command: MongoDB + anvil (Sepolia fork with live Aqua + CCA factory) + contracts + backend + frontend
+./dev.sh
+
+# Stop / status / logs / fresh DB
+./dev.sh stop | status | logs [svc] | reset
+```
+
+Requirements: Docker, Foundry, Node, pnpm. Set `SEPOLIA_RPC_URL` in `blockend/.env`.
+
+---
+
 ## Notes & Disclaimer
 
-* **Monorepo:** The project is organized as a monorepo containing frontend, backend/indexer, and smart contract packages for unified development and CI workflows.
-* **Docker-compatible:** The development environment and deployment scripts are Docker-compatible. Use the provided `docker-compose.yml` to run the stack locally.
-* **Not audited / Not production-ready:** This codebase has **not been audited** and is **not ready for production deployment**. Use only for prototyping and development purposes.
-* **Event:** Built for **ETHGlobal 2025**.
+* **Monorepo:** frontend, backend/indexer, subgraph and smart-contract packages in one repo.
+* **Not audited / not production-ready:** this codebase has **not been audited**. Prototyping and development purposes only.
+* **Event:** built for **ETHGlobal Lisbon 2026**, starting from the pre-existing FutarFi baseline (see the initial commit).
 
 Please treat this repository as a proof-of-concept. Security reviews, audits, and additional hardening are required before any real-value deployment.

@@ -6,12 +6,15 @@
 //
 // The three insights mirror the protocol's economics:
 //  - implied probability: TWAP(YES) vs TWAP(NO) — which world the market picks
-//  - arbitrage: price(YES) + price(NO) must be <= 1 USDC. The AgoraComplement
-//    SwapVM instruction enforces it per maker; the copilot watches it globally
-//    across makers (buy-both < 1 and per-maker violations).
+//  - dispersion: outcome tokens price the subject asset in each world (a
+//    forecast, not a probability), so the copilot reports the spread between
+//    the two sides and how tightly makers agree within each one.
 //  - TWAP trend: where the resolution metric is heading.
 
-const ONE_USDC = 1_000_000n;
+// How far apart makers on the SAME side may quote before the copilot calls the
+// book thin. Disagreement across YES and NO is the signal, not a problem; wide
+// disagreement inside one side means the price there is barely anchored.
+const THIN_SIDE_SPREAD_BPS = 2000; // 20%
 
 // ---------------------------------------------------------------------------
 // Data fetching
@@ -178,7 +181,11 @@ async function fetchProposalData(proposalId) {
 // Analytics (pure — unit tested)
 // ---------------------------------------------------------------------------
 
-/** Probability (basis points) that the proposal passes, from TWAPs or best asks. */
+/**
+ * How the market values the YES world relative to both, in basis points.
+ * These are forecasts of the subject asset, so this is a relative valuation
+ * (a 6000 reading means YES is priced 1.5x the NO world), not a probability.
+ */
 function impliedProbability(data) {
   let yes = data.twapYes;
   let no = data.twapNo;
@@ -194,47 +201,46 @@ function impliedProbability(data) {
 }
 
 /**
- * The invariant is price(YES) + price(NO) <= 1 USDC.
- * - buyBoth: cheapest YES + cheapest NO under 1 USDC across ALL makers means a
- *   risk-free basket (one of the two always redeems for 1).
- * - violations: a single maker quoting a pair that sums over 1 USDC is selling
- *   an overpriced book — exactly what the AgoraComplement instruction blocks
- *   at the VM level when armed.
+ * Agora prices are FORECASTS of the subject asset in each world, not
+ * probabilities, so there is no YES + NO = 1 identity to arbitrage. What the
+ * copilot watches instead is dispersion, because resolution compares
+ * TWAP(YES) against TWAP(NO):
+ * - spread: how far apart the two sides' best forecasts sit, and which world
+ *   the book currently says is worth more.
+ * - thin sides: when the makers quoting one side disagree wildly among
+ *   themselves, that side's forecast rests on very little consensus.
  */
 function detectArbitrage(data) {
-  const result = { buyBoth: null, violations: [] };
+  const result = { spread: null, violations: [] };
 
   if (data.asksYes.length > 0 && data.asksNo.length > 0) {
-    const sum = data.asksYes[0].price + data.asksNo[0].price;
-    if (sum < ONE_USDC) {
-      result.buyBoth = {
-        askYes: data.asksYes[0].price.toString(),
-        askNo: data.asksNo[0].price.toString(),
-        edgeUsdc6d: (ONE_USDC - sum).toString(),
-      };
-    }
+    const yesPrice = data.asksYes[0].price;
+    const noPrice = data.asksNo[0].price;
+    const low = yesPrice < noPrice ? yesPrice : noPrice;
+    const high = yesPrice < noPrice ? noPrice : yesPrice;
+    result.spread = {
+      askYes: yesPrice.toString(),
+      askNo: noPrice.toString(),
+      gapUsdc6d: (high - low).toString(),
+      gapBps: low === 0n ? null : Number(((high - low) * 10000n) / low),
+      leading: yesPrice > noPrice ? 'YES' : yesPrice < noPrice ? 'NO' : 'TIED',
+    };
   }
 
-  const minBy = (asks) => {
-    const map = new Map();
-    for (const a of asks) {
-      const prev = map.get(a.maker);
-      if (prev === undefined || a.price < prev) map.set(a.maker, a.price);
-    }
-    return map;
+  // Within one side, how far apart do the makers sit?
+  const sideSpread = (asks, side) => {
+    if (asks.length < 2) return null;
+    const prices = asks.map((a) => a.price);
+    const low = prices.reduce((m, p) => (p < m ? p : m));
+    const high = prices.reduce((m, p) => (p > m ? p : m));
+    if (low === 0n) return null;
+    const gapBps = Number(((high - low) * 10000n) / low);
+    return gapBps > THIN_SIDE_SPREAD_BPS
+      ? { side, low: low.toString(), high: high.toString(), gapBps, makers: asks.length }
+      : null;
   };
-  const yesByMaker = minBy(data.asksYes);
-  const noByMaker = minBy(data.asksNo);
-  for (const [maker, yesPrice] of yesByMaker) {
-    const noPrice = noByMaker.get(maker);
-    if (noPrice !== undefined && yesPrice + noPrice > ONE_USDC) {
-      result.violations.push({
-        maker,
-        askYes: yesPrice.toString(),
-        askNo: noPrice.toString(),
-        excessUsdc6d: (yesPrice + noPrice - ONE_USDC).toString(),
-      });
-    }
+  for (const thin of [sideSpread(data.asksYes, 'YES'), sideSpread(data.asksNo, 'NO')]) {
+    if (thin) result.violations.push(thin);
   }
   return result;
 }
@@ -332,22 +338,23 @@ function summarize(data, probability, arbitrage, trend, auction) {
     );
   }
 
-  if (arbitrage.buyBoth) {
+  if (arbitrage.spread && arbitrage.spread.leading !== 'TIED') {
     lines.push(
-      `Arbitrage: buying the cheapest YES (${fmtUsdc(arbitrage.buyBoth.askYes)} USDC) plus ` +
-      `the cheapest NO (${fmtUsdc(arbitrage.buyBoth.askNo)} USDC) costs under 1 USDC — a ` +
-      `risk-free ${fmtUsdc(arbitrage.buyBoth.edgeUsdc6d)} USDC edge per basket, since one side always redeems.`
+      `The book forecasts ${fmtUsdc(arbitrage.spread.askYes)} USDC per token if it passes versus ` +
+      `${fmtUsdc(arbitrage.spread.askNo)} if it does not — ${arbitrage.spread.leading} ahead by ` +
+      `${fmtUsdc(arbitrage.spread.gapUsdc6d)} USDC` +
+      (arbitrage.spread.gapBps === null ? '.' : ` (${(arbitrage.spread.gapBps / 100).toFixed(1)}%).`)
     );
   }
   for (const v of arbitrage.violations) {
     lines.push(
-      `Maker ${v.maker.slice(0, 10)}… quotes YES+NO at ${fmtUsdc(v.askYes)}+${fmtUsdc(v.askNo)} ` +
-      `> 1 USDC (overpriced by ${fmtUsdc(v.excessUsdc6d)}) — the AgoraComplement VM instruction ` +
-      `rejects exactly this when armed.`
+      `The ${v.side} side is thin: its ${v.makers} makers quote between ${fmtUsdc(v.low)} and ` +
+      `${fmtUsdc(v.high)} USDC (${(v.gapBps / 100).toFixed(0)}% apart), so that forecast rests on ` +
+      `little consensus.`
     );
   }
-  if (!arbitrage.buyBoth && arbitrage.violations.length === 0) {
-    lines.push('No YES+NO pricing inconsistencies across makers right now.');
+  if (arbitrage.violations.length === 0 && arbitrage.spread) {
+    lines.push('Makers agree closely within each side.');
   }
 
   if (data.status === 'RESOLVED' && data.winner) {

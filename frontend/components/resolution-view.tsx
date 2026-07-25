@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, TrendingUp, Coins, Target, Shield, Clock } from "lucide-react"
 import type { MarketOption } from "@/lib/types"
-import { useAccount, useReadContract } from "wagmi"
+import { useAccount, useReadContract, useConfig } from "wagmi"
 import { useCallback, useMemo, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { proposal_abi } from "@/contracts/proposal-abi"
@@ -13,6 +13,7 @@ import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { treasury_abi } from "@/contracts/treasury-abi"
 import { ethers } from "ethers"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
+import { getEthersSigner } from "@/lib/signer"
 
 interface AuctionResolvedProps {
   winningMarket: MarketOption
@@ -362,6 +363,7 @@ export function AuctionResolved({
 // ------------------------ AuctionResolvedOnChain ------------------------
 
 export function AuctionResolvedOnChain({ proposalAddress }: { proposalAddress: `0x${string}` }) {
+  const config = useConfig()
   const { address: user, isConnected, status } = useAccount()
   const ZERO = "0x0000000000000000000000000000000000000000" as const
 
@@ -537,10 +539,7 @@ export function AuctionResolvedOnChain({ proposalAddress }: { proposalAddress: `
     }
 
     try {
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum) throw new Error("No wallet found")
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
+      const signer = await getEthersSigner(config)
 
       // 1) Ensure allowance for Treasury to pull losing tokens
       if (!treasury) throw new Error("Treasury not available")

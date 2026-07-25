@@ -40,7 +40,7 @@ contract AgoraComplementTest is Test {
 
         yes.mint(maker, 100e18);
         no.mint(maker, 100e18);
-        usdc.mint(taker, 1_000e6);
+        usdc.mint(taker, 1_000_000e6);
 
         vm.startPrank(maker);
         yes.approve(AQUA_SEPOLIA, type(uint256).max);
@@ -52,16 +52,26 @@ contract AgoraComplementTest is Test {
         usdc.approve(address(router), type(uint256).max);
     }
 
+    /// Forecast prices: what the subject asset is worth in each world.
+    /// ~3000 USDC per token, i.e. 3000e6 in 6-decimal terms.
+    uint256 constant REFERENCE = 3000e6;      // the proposal's Pyth reference
+    uint256 constant FORECAST_YES = 3000e6;
+    uint256 constant FORECAST_NO = 2800e6;
+    uint256 constant FORECAST_BULL = 90_000e6; // 30x — a radical but real view
+    uint256 constant FAT_FINGER = 1;           // 0.000001 USDC — a typo, not a view
+    uint256 constant MAX_RATIO = 100;
+
     /// Ship a lot whose program carries the complement guard.
     function _shipGuardedLot(
         MockOutcomeToken token,
-        uint256 price6d,       // this lot's price (encoded via ship amounts)
-        uint256 pairedPrice6d, // the paired side's price (checked by the VM)
+        uint256 price6d,   // this lot's forecast (encoded via ship amounts)
+        uint256 refPrice, // the market reference the VM sanity-checks against
         uint256 salt
     ) internal returns (ISwapVM.Order memory order, uint256 lotUsdc) {
         lotUsdc = (LOT_TOKEN * price6d) / 1e18;
         bytes memory program = builder.buildProgramWithComplement(
-            address(usdc), address(token), address(complement), pairedPrice6d, bytes32(salt)
+            address(usdc), address(token), address(complement),
+            refPrice, MAX_RATIO, bytes32(salt)
         );
         order = builder.buildOrder(maker, program);
 
@@ -75,8 +85,8 @@ contract AgoraComplementTest is Test {
     }
 
     function test_coherentPair_fills() public {
-        // YES at 0.60 paired with NO at 0.35 -> 0.95 <= 1.00 OK
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 350000, 1);
+        // A plain forecast at the reference price fills normally
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, REFERENCE, 1);
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.prank(taker);
@@ -86,19 +96,47 @@ contract AgoraComplementTest is Test {
         assertEq(amountOut, LOT_TOKEN);
     }
 
-    function test_arbitragePair_revertsAtVMLevel() public {
-        // YES at 0.60 paired with NO at 0.50 -> 1.10 > 1.00 -> the VM must reject the fill
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 500000, 2);
+    function test_fatFingerLot_revertsAtVMLevel() public {
+        // A dust price 3 billion times below the reference is a typo, and it
+        // would drag the settling TWAP with it.
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FAT_FINGER, REFERENCE, 2);
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.prank(taker);
-        vm.expectRevert(abi.encodeWithSelector(AgoraComplement.ComplementViolation.selector, 600000, 500000));
+        vm.expectRevert(abi.encodeWithSelector(
+            AgoraComplement.ComplementPriceOutOfBand.selector, FAT_FINGER, REFERENCE, MAX_RATIO
+        ));
         router.swap(yesOrder, address(usdc), address(yes), yesUsdc, takerData);
+    }
+
+    function test_radicalButRealForecast_isAllowed() public {
+        // 30x the reference: a proposal that reprices the asset hard. The gap
+        // IS the signal, so the guard must stay out of the way.
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_BULL, REFERENCE, 9);
+        bytes memory takerData = builder.buildTakerData(taker, true);
+        vm.prank(taker);
+        (uint256 amountIn,,) = router.swap(yesOrder, address(usdc), address(yes), yesUsdc, takerData);
+        assertEq(amountIn, yesUsdc, "a 30x conviction forecast must still fill");
+    }
+
+    function test_bothSidesFarApart_bothFill() public {
+        // The two worlds priced 30x apart: legitimate disagreement, not an
+        // error. Both lots fill — the earlier YES+NO<=1 rule rejected this.
+        (ISwapVM.Order memory bullOrder, uint256 bullUsdc) = _shipGuardedLot(yes, FORECAST_BULL, REFERENCE, 10);
+        (ISwapVM.Order memory bearOrder, uint256 bearUsdc) = _shipGuardedLot(no, FORECAST_NO, REFERENCE, 11);
+
+        bytes memory takerData = builder.buildTakerData(taker, true);
+        vm.startPrank(taker);
+        router.swap(bullOrder, address(usdc), address(yes), bullUsdc, takerData);
+        router.swap(bearOrder, address(usdc), address(no), bearUsdc, takerData);
+        vm.stopPrank();
+        assertEq(yes.balanceOf(taker), LOT_TOKEN);
+        assertEq(no.balanceOf(taker), LOT_TOKEN);
     }
 
     function test_quoteAndSwapConsistent() public {
         // Extruction contract must behave identically in static (quote) and swap paths
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 350000, 3);
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, REFERENCE, 3);
         bytes memory takerData = builder.buildTakerData(taker, true);
 
         // quote path (static context)
@@ -113,9 +151,9 @@ contract AgoraComplementTest is Test {
     }
 
     function test_bothSidesGuarded_noPairFillsCoherently() public {
-        // Full pair: YES 0.60 / NO 0.35, each side guards against the other
-        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, 600000, 350000, 4);
-        (ISwapVM.Order memory noOrder, uint256 noUsdc) = _shipGuardedLot(no, 350000, 600000, 5);
+        // Full pair, both sanity-checked against the same market reference
+        (ISwapVM.Order memory yesOrder, uint256 yesUsdc) = _shipGuardedLot(yes, FORECAST_YES, REFERENCE, 4);
+        (ISwapVM.Order memory noOrder, uint256 noUsdc) = _shipGuardedLot(no, FORECAST_NO, REFERENCE, 5);
 
         bytes memory takerData = builder.buildTakerData(taker, true);
         vm.startPrank(taker);

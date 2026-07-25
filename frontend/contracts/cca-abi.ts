@@ -38,6 +38,11 @@ export function q96ToPrice6d(priceQ96: bigint): bigint {
   return (priceQ96 * 10n ** 18n) / Q96
 }
 
+/** USDC 6d per 1e18 token -> Q96 currency-per-token (inverse of q96ToPrice6d). */
+export function price6dToQ96(price6d: bigint): bigint {
+  return (price6d * Q96) / 10n ** 18n
+}
+
 /** Snap a Q96 price DOWN to the auction's tick grid. */
 export function snapToTick(priceQ96: bigint, tickSpacing: bigint): bigint {
   if (tickSpacing === 0n) return priceQ96

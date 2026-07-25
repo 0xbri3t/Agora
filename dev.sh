@@ -46,6 +46,26 @@ require() {
 
 pid_alive() { [ -f "$PID_DIR/$1.pid" ] && kill -0 "$(cat "$PID_DIR/$1.pid")" 2>/dev/null; }
 
+# Kill whatever holds a port that isn't ours. A leftover process from an
+# earlier session (one that outlived its pidfile) otherwise silently wins the
+# port and the service we just started dies with EADDRINUSE.
+free_port() { # port, name
+  local port="$1" name="$2" owner
+  # Only act when we are about to start this service: if our own pidfile is
+  # alive, start_bg will skip it and the port legitimately belongs to us.
+  if pid_alive "$name"; then return 0; fi
+  owner="$(lsof -ti :"$port" 2>/dev/null | head -1 || true)"
+  if [ -z "$owner" ]; then return 0; fi
+  info "port $port held by a stale process (pid $owner) — stopping it"
+  kill "$owner" 2>/dev/null || true
+  sleep 1
+  if lsof -ti :"$port" >/dev/null 2>&1; then
+    kill -9 "$owner" 2>/dev/null || true
+    sleep 1
+  fi
+  return 0
+}
+
 start_bg() { # name, cwd, cmd...
   local name="$1" cwd="$2"; shift 2
   if pid_alive "$name"; then info "$name already running (pid $(cat "$PID_DIR/$name.pid"))"; return; fi
@@ -88,6 +108,15 @@ cmd_start() {
     info "created backend/.env from .env.example"
   fi
 
+  # The backend runs natively here, so Docker-internal hostnames resolve to
+  # nothing. dotenv keeps the LAST assignment, so an uncommented Docker line
+  # silently wins and the API talks to a database that does not exist.
+  if grep -qE '^(MONGODB_URI|RPC_URL|RPC_WS_URL)=.*(@mongodb:|host\.docker\.internal)' "$ROOT/backend/.env"; then
+    red "backend/.env points at Docker hostnames (mongodb: / host.docker.internal)."
+    red "Comment those lines out — running natively they must use localhost."
+    exit 1
+  fi
+
   # 2. MongoDB (docker, only the db service — API runs natively for hot reload)
   info "starting mongodb (docker) ..."
   "${DC[@]}" up -d mongodb
@@ -111,7 +140,8 @@ cmd_start() {
     fork_args=(--fork-block-number "$(( 16#$fork_block - 5 ))")
     info "forking Sepolia at block $(( 16#$fork_block - 5 ))"
   fi
-  start_bg anvil "$ROOT" anvil --chain-id 31337 --port 8545 --block-time "$BLOCK_TIME" \
+  free_port 8545 anvil
+  start_bg anvil "$ROOT" anvil --chain-id 31337 --host 0.0.0.0 --port 8545 --block-time "$BLOCK_TIME" \
     --fork-url "$fork_url" "${fork_args[@]}"
   wait_for_rpc
 
@@ -123,15 +153,26 @@ cmd_start() {
 
   # 5. Backend (native nodemon; env overrides beat .env values via dotenv semantics)
   [ -d "$ROOT/backend/node_modules" ] || ( info "installing backend deps ..." && cd "$ROOT/backend" && npm install )
+  free_port 3001 backend
   MONGODB_URI="mongodb://admin:password123@localhost:27017/agora?authSource=admin" \
   RPC_URL="http://127.0.0.1:8545" \
   RPC_WS_URL="ws://127.0.0.1:8545" \
   CHAIN_ID="31337" \
+  SUBGRAPH_URL="" \
   start_bg backend "$ROOT/backend" npm run dev
   wait_for backend http://localhost:3001/health 90
 
   # 6. Frontend
   [ -d "$ROOT/frontend/node_modules" ] || ( info "installing frontend deps ..." && cd "$ROOT/frontend" && pnpm install )
+  # `next build` and `next dev` share .next, so a production build run while
+  # the dev server is up leaves it serving 404s for every chunk. Start clean.
+  if [ -d "$ROOT/frontend/.next" ] && [ ! -f "$ROOT/frontend/.next/BUILD_ID" ]; then
+    : # dev-only cache, fine to keep
+  elif [ -d "$ROOT/frontend/.next" ]; then
+    info "clearing .next left behind by a production build"
+    rm -rf "$ROOT/frontend/.next"
+  fi
+  free_port 3000 frontend
   start_bg frontend "$ROOT/frontend" pnpm dev
   wait_for frontend http://localhost:3000 120
 
@@ -171,6 +212,9 @@ cmd_skip() {
     cast call "$pm" "proposals(uint256)(address)" "$1" --rpc-url "$RPC_LOCAL"
   }
 
+  # cast prints numbers as "12345 [1.2e4]" — keep just the decimal part
+  num() { awk '{print $1}'; }
+
   mine_blocks() { # count
     local n="$1"
     info "mining $n blocks ..."
@@ -188,7 +232,7 @@ cmd_skip() {
     auction)
       local p end now
       p="$(proposal_addr "${2:?proposalId required}")"
-      end="$(cast call "$p" "auctionEndBlock()(uint64)" --rpc-url "$RPC_LOCAL")"
+      end="$(cast call "$p" "auctionEndBlock()(uint64)" --rpc-url "$RPC_LOCAL" | num)"
       now="$(cast block-number --rpc-url "$RPC_LOCAL")"
       if [ "$now" -ge "$end" ]; then
         green "auction already past its end block ($now >= $end)"
@@ -205,7 +249,7 @@ cmd_skip() {
     live)
       local p live_end now_ts
       p="$(proposal_addr "${2:?proposalId required}")"
-      live_end="$(cast call "$p" "liveEnd()(uint256)" --rpc-url "$RPC_LOCAL")"
+      live_end="$(cast call "$p" "liveEnd()(uint256)" --rpc-url "$RPC_LOCAL" | num)"
       now_ts="$(cast block --rpc-url "$RPC_LOCAL" --field timestamp)"
       if [ "$now_ts" -ge "$live_end" ]; then
         green "live period already over"

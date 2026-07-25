@@ -38,7 +38,7 @@ export default function ProposalsPage() {
   const { proposals, isLoading, error, refetch } = useGetAllProposals()
   const { isConnected, address } = useAccount()
   // const router = useRouter()
-  const { mintPublic, collateralBalance, error: mintError, refetchOnchain } = useCreateOrder()
+  const { mintPublic, isMinting, collateralBalance, error: mintError, refetchOnchain } = useCreateOrder()
   const { deleteProposal, pending, error: deleteError } = useDeleteProposal()
   const { toast } = useToast()
 
@@ -134,8 +134,9 @@ export default function ProposalsPage() {
               <span className="font-mono text-sm tabular-nums text-muted-foreground" id="collateral-balance">
                 {Number(collateralBalance) / 1e6} USDC
               </span>
-              <Button size="sm" variant="outline" onClick={mintPublic}>
-                Mint USDC
+              <Button size="sm" variant="outline" onClick={mintPublic} disabled={isMinting}>
+                {isMinting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isMinting ? "Minting…" : "Mint USDC"}
               </Button>
             </div>
           ) : null}

@@ -1,11 +1,12 @@
 "use client"
 
 import { useCallback, useMemo, useState, useEffect } from "react"
-import { useAccount, useReadContract, useChainId, usePublicClient } from "wagmi"
+import { useAccount, useReadContract, useChainId, usePublicClient, useConfig, useSwitchChain } from "wagmi"
+import { getEthersSigner } from "@/lib/signer"
 import { parseUnits } from "viem"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
-import { cca_abi, permit2_abi, PERMIT2_ADDRESS, q96ToPrice6d, snapToTick } from "@/contracts/cca-abi"
+import { cca_abi, permit2_abi, PERMIT2_ADDRESS, q96ToPrice6d, price6dToQ96, snapToTick } from "@/contracts/cca-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { getContractAddress } from "@/contracts/constants"
 
@@ -30,6 +31,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
   const { address } = useAccount()
   const chainId = useChainId()
   const publicClient = usePublicClient()
+  const config = useConfig()
   const [amount, setAmount] = useState<string>("") // USDC budget (6d)
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>()
 
@@ -92,7 +94,8 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     return () => clearInterval(id)
   }, [publicClient, auctionAddress, refetchOnchain])
 
-  const doApproveAndBuy = useCallback(async () => {
+  /** @param maxPrice6d Optional user cap (USDC 6d per token). Defaults to 2x current clearing. */
+  const doApproveAndBuy = useCallback(async (maxPrice6d?: bigint) => {
     setError(null)
     if (!address) { setError("Connect wallet"); throw new Error("Connect wallet") }
     if (!usdcAddress) { setError("Token not configured for this network"); throw new Error("no usdc") }
@@ -101,19 +104,24 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     const budget = parseUnits(amount || "0", 6)
     if (budget === 0n) { setError("Enter an amount greater than 0"); throw new Error("zero amount") }
 
-    const anyWindow = window as any
-    if (!anyWindow?.ethereum) { setError("No wallet found"); throw new Error("no wallet") }
-    const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-    const signer = await provider.getSigner()
-
+    // Signer comes from the wagmi connector so embedded/guest wallets work too
+    let signer
     try {
-      const net = await provider.getNetwork()
-      if (chainId && Number(net.chainId) !== chainId) {
-        try {
-          await anyWindow.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] })
-        } catch {}
-      }
-    } catch {}
+      signer = await getEthersSigner(config)
+    } catch (e: any) {
+      const msg = e?.message?.includes('chain') ? e.message : "Connect wallet"
+      setError(msg)
+      throw new Error(msg)
+    }
+
+    // The auction only exists on the app's chain: a wallet signing against a
+    // different network fails estimateGas with "missing revert data".
+    const walletChain = Number((await signer.provider.getNetwork()).chainId)
+    if (walletChain !== chainId) {
+      const msg = `Wrong network: wallet is on chain ${walletChain}, switch it to chain ${chainId}`
+      setError(msg)
+      throw new Error(msg)
+    }
 
     if (!publicClient) { setError("No client"); throw new Error("no client") }
 
@@ -128,9 +136,18 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     if (blockNow >= endBlock) { setError('Auction ended'); throw new Error('Auction ended') }
     if (budget > (usdcNow ?? 0n)) { setError('Insufficient USDC balance'); throw new Error('Insufficient USDC') }
 
-    // Max price: 2x current clearing, snapped down to the tick grid, and at
-    // least one tick above clearing so the bid is accepted.
-    let maxPriceQ96 = snapToTick(clearingNow * 2n, tickSpacing)
+    // Max price: the user's cap when given, else 2x current clearing. Snapped
+    // down to the tick grid, and at least one tick above clearing so the bid
+    // is accepted. The max only bounds participation — everyone pays the
+    // final clearing price.
+    if (typeof maxPrice6d === "bigint" && price6dToQ96(maxPrice6d) <= clearingNow) {
+      const nowUsdc = (Number(q96ToPrice6d(clearingNow)) / 1e6).toFixed(2)
+      const msg = `Max price is below the current clearing price ($${nowUsdc}) — the bid would never fill`
+      setError(msg)
+      throw new Error(msg)
+    }
+    const rawMaxQ96 = typeof maxPrice6d === "bigint" ? price6dToQ96(maxPrice6d) : clearingNow * 2n
+    let maxPriceQ96 = snapToTick(rawMaxQ96, tickSpacing)
     if (maxPriceQ96 <= clearingNow) maxPriceQ96 = snapToTick(clearingNow, tickSpacing) + tickSpacing
 
     // Permit2 flow: USDC -> Permit2 (ERC20 approve) + Permit2 allowance -> auction
@@ -183,7 +200,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     } finally {
       setIsBuying(false)
     }
-  }, [address, usdcAddress, auctionAddress, amount, chainId, publicClient, refetchOnchain])
+  }, [address, usdcAddress, auctionAddress, amount, chainId, publicClient, refetchOnchain, config])
 
   return {
     amount,
@@ -210,6 +227,7 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
 export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${string}` }) {
   const { address } = useAccount()
   const publicClient = usePublicClient()
+  const config = useConfig()
   const [bids, setBids] = useState<{ bidId: bigint; priceQ96: bigint; amount: bigint }[]>([])
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -217,16 +235,22 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
   const refetch = useCallback(async () => {
     try {
       if (!publicClient || !address || !auctionAddress) return
+      // Start at the auction's own first block: 'earliest' makes a forked node
+      // forward the query upstream, where the block range is rejected.
+      const fromBlock = await publicClient.readContract({
+        address: auctionAddress, abi: cca_abi, functionName: 'startBlock',
+      }) as bigint
+
       const [submitted, claimedLogs] = await Promise.all([
         publicClient.getLogs({
           address: auctionAddress,
           event: cca_abi.find((f) => f.type === 'event' && f.name === 'BidSubmitted') as any,
-          args: { owner: address }, fromBlock: 'earliest',
+          args: { owner: address }, fromBlock,
         }),
         publicClient.getLogs({
           address: auctionAddress,
           event: cca_abi.find((f) => f.type === 'event' && f.name === 'TokensClaimed') as any,
-          args: { owner: address }, fromBlock: 'earliest',
+          args: { owner: address }, fromBlock,
         }),
       ])
       const claimed = new Set(claimedLogs.map((l: any) => String(l.args.bidId)))
@@ -247,10 +271,8 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
     setError(null)
     setIsWorking(true)
     try {
-      const anyWindow = window as any
-      if (!anyWindow?.ethereum || !auctionAddress) throw new Error('No wallet')
-      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
-      const signer = await provider.getSigner()
+      if (!auctionAddress) throw new Error('No auction')
+      const signer = await getEthersSigner(config)
       const auction = new ethers.Contract(auctionAddress, CCA_WRITE_ABI, signer)
       try {
         const tx = await auction.exitBid(bidId)
@@ -269,7 +291,7 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
     } finally {
       setIsWorking(false)
     }
-  }, [auctionAddress, refetch])
+  }, [auctionAddress, refetch, config])
 
   return { bids, refetch, exitAndClaim, isWorking, error }
 }

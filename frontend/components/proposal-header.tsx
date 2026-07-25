@@ -32,6 +32,8 @@ export function ProposalHeader({ proposal, chainId }: ProposalHeaderProps) {
   const stateRaw = String((proposal as any).state || '').toLowerCase()
   const stateLabel = stateRaw ? (stateRaw[0].toUpperCase() + stateRaw.slice(1)) : 'Auction'
   const badgeClass = (statusColors as any)[stateLabel] || statusColors.Auction
+  // "Live" is the contract's name for the trading phase — show it as the market
+  const displayLabel = stateLabel === 'Live' ? 'Market Live' : stateLabel
 
   // Derive the most accurate timeframe depending on state, with robust fallbacks
   const pAny = proposal as any
@@ -87,7 +89,7 @@ export function ProposalHeader({ proposal, chainId }: ProposalHeaderProps) {
                 {formatDate(windowStart)} - {formatDate(windowEnd)}
               </span>
               <Badge variant="outline" className={badgeClass}>
-                {stateLabel}
+                {displayLabel}
               </Badge>
             </div>
           </div>

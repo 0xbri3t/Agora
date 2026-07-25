@@ -37,8 +37,8 @@ describe('impliedProbability', () => {
   test('falls back to best asks when TWAPs are zero', () => {
     const p = impliedProbability({
       ...base,
-      asksYes: [{ maker: '0xa', price: 750000n, lotToken: 1n }],
-      asksNo: [{ maker: '0xb', price: 250000n, lotToken: 1n }],
+      asksYes: [{ maker: '0xa', price: 3000_000000n, lotToken: 1n }],
+      asksNo: [{ maker: '0xb', price: 1000_000000n, lotToken: 1n }],
     });
     expect(p).toEqual({ bps: 7500, basis: 'best asks' });
   });
@@ -49,45 +49,55 @@ describe('impliedProbability', () => {
 });
 
 describe('detectArbitrage', () => {
-  test('flags a cross-maker buy-both basket under 1 USDC', () => {
+  // Forecasts of the subject asset: thousands of USDC per token, never a
+  // probability that sums to one.
+  test('reports the spread between the two worlds and which leads', () => {
     const result = detectArbitrage({
       ...base,
-      asksYes: [{ maker: '0xa', price: 400000n, lotToken: 1n }],
-      asksNo: [{ maker: '0xb', price: 350000n, lotToken: 1n }],
+      asksYes: [{ maker: '0xa', price: 3000_000000n, lotToken: 1n }],
+      asksNo: [{ maker: '0xb', price: 2500_000000n, lotToken: 1n }],
     });
-    expect(result.buyBoth).toEqual({
-      askYes: '400000',
-      askNo: '350000',
-      edgeUsdc6d: '250000',
-    });
+    expect(result.spread.leading).toBe('YES');
+    expect(result.spread.gapUsdc6d).toBe('500000000');
+    expect(result.spread.gapBps).toBe(2000);
     expect(result.violations).toHaveLength(0);
   });
 
-  test('flags a single maker whose YES+NO pair sums over 1 USDC', () => {
+  test('flags a side whose own makers disagree wildly', () => {
     const result = detectArbitrage({
       ...base,
       asksYes: [
-        { maker: '0xevil', price: 700000n, lotToken: 1n },
-        { maker: '0xok', price: 500000n, lotToken: 1n },
+        { maker: '0xa', price: 3000_000000n, lotToken: 1n },
+        { maker: '0xb', price: 9000_000000n, lotToken: 1n }, // 200% above 0xa
       ],
       asksNo: [
-        { maker: '0xevil', price: 450000n, lotToken: 1n },
-        { maker: '0xok', price: 400000n, lotToken: 1n },
+        { maker: '0xa', price: 2900_000000n, lotToken: 1n },
+        { maker: '0xb', price: 3000_000000n, lotToken: 1n }, // tight
       ],
     });
-    expect(result.violations).toEqual([
-      { maker: '0xevil', askYes: '700000', askNo: '450000', excessUsdc6d: '150000' },
-    ]);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].side).toBe('YES');
+    expect(result.violations[0].gapBps).toBe(20000);
   });
 
-  test('coherent book yields nothing', () => {
+  test('two worlds priced far apart is signal, not a warning', () => {
     const result = detectArbitrage({
       ...base,
-      asksYes: [{ maker: '0xa', price: 600000n, lotToken: 1n }],
-      asksNo: [{ maker: '0xa', price: 400000n, lotToken: 1n }],
+      asksYes: [{ maker: '0xa', price: 90_000_000000n, lotToken: 1n }],
+      asksNo: [{ maker: '0xb', price: 3000_000000n, lotToken: 1n }],
     });
-    expect(result.buyBoth).toBeNull();
     expect(result.violations).toHaveLength(0);
+    expect(result.spread.leading).toBe('YES');
+  });
+
+  test('a tight book raises nothing', () => {
+    const result = detectArbitrage({
+      ...base,
+      asksYes: [{ maker: '0xa', price: 3000_000000n, lotToken: 1n }],
+      asksNo: [{ maker: '0xa', price: 2900_000000n, lotToken: 1n }],
+    });
+    expect(result.violations).toHaveLength(0);
+    expect(result.spread.leading).toBe('YES');
   });
 });
 
@@ -166,12 +176,12 @@ describe('summarize', () => {
     const probability = impliedProbability(data);
     const arbitrage = detectArbitrage({
       ...data,
-      asksYes: [{ maker: '0xa', price: 400000n, lotToken: 1n }],
-      asksNo: [{ maker: '0xb', price: 350000n, lotToken: 1n }],
+      asksYes: [{ maker: '0xa', price: 3000_000000n, lotToken: 1n }],
+      asksNo: [{ maker: '0xb', price: 2500_000000n, lotToken: 1n }],
     });
     const text = summarize(data, probability, arbitrage, null);
     expect(text).toContain('60.0%');
-    expect(text).toContain('risk-free');
+    expect(text).toContain('YES ahead by');
   });
 
   test('reports a resolved winner', () => {

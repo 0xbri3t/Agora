@@ -69,21 +69,26 @@ contract AgoraQuoteBuilder is LimitOpcodes {
     }
 
     /// @notice Like buildProgram, but prepends the AgoraComplement extruction:
-    ///         the VM itself rejects fills when ownPrice + pairedPrice > 1 USDC.
+    ///         the VM rejects the fill if the lot cannot be a genuine forecast
+    ///         (zero balances, or a price far outside the reference band).
+    /// @dev It deliberately says nothing about the YES/NO relationship — the
+    ///      gap between the two worlds is the market's signal, not an error.
     /// @param complement Deployed AgoraComplement (immutable, stateless)
-    /// @param pairedPrice6d Price of the maker's OTHER outcome lot (USDC 6d per 1e18 token)
+    /// @param referencePrice6d Market reference for the subject asset (USDC 6d per 1e18 token)
+    /// @param maxRatio How far above/below the reference a lot may price (e.g. 100x)
     function buildProgramWithComplement(
         address usdc,
         address outcomeToken,
         address complement,
-        uint256 pairedPrice6d,
+        uint256 referencePrice6d,
+        uint256 maxRatio,
         bytes32 salt
     ) public view returns (bytes memory) {
         Program memory p = ProgramBuilder.init(_opcodes());
 
         return bytes.concat(
-            // _extruction args = [target:20B][extructionArgs...] — ours: [pairedPrice:32B]
-            p.build(Extruction._extruction, abi.encodePacked(complement, pairedPrice6d)),
+            // _extruction args = [target:20B][referencePrice:32B][maxRatio:32B]
+            p.build(Extruction._extruction, abi.encodePacked(complement, referencePrice6d, maxRatio)),
             p.build(LimitSwap._limitSwapOnlyFull1D, LimitSwapArgsBuilder.build(usdc, outcomeToken)),
             p.build(Controls._salt, abi.encodePacked(salt))
         );
