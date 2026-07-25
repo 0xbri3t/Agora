@@ -69,9 +69,10 @@ describe('pushOnce (fork)', () => {
     const fee = await mockPyth.getUpdateFee([update]);
     await (await mockPyth.updatePriceFeeds([update], { value: fee })).wait();
 
+    const CCA_FACTORY = '0x000000001F26a0044BaA66024e7b6599c61963F8';
     const impl = await deploy('Proposal.sol/Proposal.json', []);
     const pm = await deploy('ProposalManager.sol/ProposalManager.json',
-      [h.cfg.usdcAddress, await impl.getAddress(), h.maker.address]);
+      [h.cfg.usdcAddress, await impl.getAddress(), h.maker.address, CCA_FACTORY]);
 
     await (await pm.createProposal(
       'T', 'D', 600, 3600, 'S', 10n ** 18n, 100n * 10n ** 18n,
@@ -83,20 +84,27 @@ describe('pushOnce (fork)', () => {
     const proposalAbi = art('Proposal.sol/Proposal.json').abi;
     const proposal = new ethers.Contract(proposalAddr, proposalAbi, h.provider);
 
-    // Drive auctions to cap -> Live
+    // Drive the CCA auctions past graduation -> Live
     const usdc = h.usdc;
     await (await usdc.mint(h.maker.address, 10n ** 15n)).wait();
-    const treasury = await proposal.treasury();
-    await (await usdc.connect(h.maker).approve(treasury, ethers.MaxUint256)).wait();
-    const yesA = new ethers.Contract(await proposal.yesAuction(), art('DutchAuction.sol/DutchAuction.json').abi, h.maker);
-    const noA = new ethers.Contract(await proposal.noAuction(), art('DutchAuction.sol/DutchAuction.json').abi, h.maker);
-    await (await yesA.buyLiquidity(7000n * 10n ** 6n)).wait(); // > minToOpen at ~6000 USDC/token
-    await (await noA.buyLiquidity(7000n * 10n ** 6n)).wait();
-    await h.provider.send('evm_increaseTime', [700]);
-    await h.provider.send('evm_mine', []);
-    // finalize by attestor (maker) once END_TIME passed
-    await (await yesA.finalize()).wait();
-    await (await noA.finalize()).wait();
+    const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+    const permit2 = new ethers.Contract(PERMIT2,
+      ['function approve(address token, address spender, uint160 amount, uint48 expiration)'], h.maker);
+    const ccaAbi = art('ICCA.sol/ICCAuction.json').abi;
+    const yesA = new ethers.Contract(await proposal.yesAuction(), ccaAbi, h.maker);
+    const noA = new ethers.Contract(await proposal.noAuction(), ccaAbi, h.maker);
+    await (await usdc.connect(h.maker).approve(PERMIT2, ethers.MaxUint256)).wait();
+    await (await permit2.approve(h.cfg.usdcAddress, await yesA.getAddress(), (1n << 160n) - 1n, (1n << 48n) - 1n)).wait();
+    await (await permit2.approve(h.cfg.usdcAddress, await noA.getAddress(), (1n << 160n) - 1n, (1n << 48n) - 1n)).wait();
+    for (const auction of [yesA, noA]) {
+      const maxPrice = (await auction.clearingPrice()) * 4n;
+      await (await auction['submitBid(uint256,uint128,address,bytes)'](maxPrice, 7000n * 10n ** 6n, h.maker.address, '0x')).wait();
+    }
+    const endBlock = Number(await proposal.auctionEndBlock());
+    let current = await h.provider.getBlockNumber();
+    for (let i = current; i <= endBlock; i++) await h.provider.send('evm_mine', []);
+    const proposalAsMaker = new ethers.Contract(proposalAddr, proposalAbi, h.maker);
+    await (await proposalAsMaker.settleAuctions()).wait();
     expect(Number(await proposal.state())).toBe(1); // Live
 
     // Seed Mongo: proposal doc + filled Aqua lots
