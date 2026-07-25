@@ -5,7 +5,7 @@ export type Author = {
 }
 
 export const site = {
-  website: "https://futarfi.com",
+  website: "https://agora.market",
   // Adjust to your preferred docs URL; currently points to the repo docs folder
   docs: "https://github.com/bri3t/Futarchy-DeFi-Protocol/",
   authors: [

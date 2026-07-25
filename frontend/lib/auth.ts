@@ -7,7 +7,7 @@ export type StoredAuth = {
   verifiedAt?: number
 }
 
-export const AUTH_STORAGE_KEY = 'futarfi:walletAuth'
+export const AUTH_STORAGE_KEY = 'agora:walletAuth'
 
 export function getStoredAuth(): StoredAuth | null {
   if (typeof window === 'undefined') return null
