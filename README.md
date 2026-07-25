@@ -52,17 +52,14 @@ Agora introduces futarchy-based decision-making, where predictions, not raw vote
 
 A major pain point for any new protocol/market is the cold start: thin books, wide spreads, and noisy first prints caused by insufficient volume/liquidity. Early trades are easy to push around, UX suffers, and governance signals get distorted.
 
-Agora addresses this with pre-market dual Dutch auctions (YES/NO). The auction price decays over a fixed window (from 2× → 0 relative to a base), letting participants purchase the initial supply before continuous trading begins. This design creates clear incentives and healthier market microstructure at t = 0:
+Agora bootstraps each market with **Uniswap Continuous Clearing Auctions**: every proposal deploys two CCAs (YES and NO) through the canonical `ContinuousClearingAuctionFactory` on Sepolia. Participants bid a budget with a max price; the uniform clearing price starts at a floor (a tenth of the Pyth reference price) and rises with demand as the token supply releases block by block.
 
-- **Discount incentive:** early buyers can acquire MarketTokens at a lower expected cost than the open, compensating them for bootstrapping depth.
-- **Information revelation:** informed participants can act on private knowledge ahead of the open, moving the clearing price toward fundamentals.
-- **Cap-uncertainty “fear” dynamic:** because the Dutch auction is cap-limited and participants don’t know exactly when maxSupply will be reached, there’s a real risk of being locked out of the cheaper tranche. Traders can’t be overly greedy waiting for a deeper discount; the fear of missing the cap pulls demand forward in time, accelerating depth formation.
-- **Two-sided depth:** a per-side `minSupplySold` gate ensures both YES and NO enter the open with sufficient liquidity; otherwise, funds are refunded.
-- **Anchoring the open:** the aggregate auction outcome provides an indicative initial price that anchors quotes at the start of the session, tightening spreads and improving subsequent price discovery.
-  
-Once live, the market transitions to continuous on-chain trading on 1inch Aqua, leveraging the auction’s depth and reference price to deliver tighter spreads, better fills, and a cleaner signal for TWAP-based settlement later on.
+- **Fair price discovery:** everyone in a block pays the same clearing price; higher max prices get allocated first. No gas wars, no sniping.
+- **Graduation gate:** each CCA carries a `requiredCurrencyRaised` threshold derived from the proposal's `minToOpen`. Both sides must graduate for the market to open — the on-chain equivalent of "enough interest to be worth trading".
+- **Native refunds:** if either side fails to graduate, the proposal cancels and bidders exit their bids on the CCA for a full refund. The Treasury never touches funds pre-graduation.
+- **Anchoring the open:** the final clearing prices anchor the YES/NO quotes when continuous trading starts, tightening spreads and improving subsequent price discovery.
 
----
+On graduation, `settleAuctions()` sweeps both raised pots (net of the Uniswap protocol fee) into the market's Treasury — the collateral that later pays pro-rata redemptions at resolution — and the market transitions to continuous on-chain trading on 1inch Aqua, leveraging the auction's depth and reference price to deliver tighter spreads, better fills, and a cleaner signal for TWAP-based settlement later on.
 
 ## System Flow
 ![System Flow](https://github.com/user-attachments/assets/22721499-0fdf-4c89-bddd-fa4eb14acbb8)
@@ -159,6 +156,25 @@ Requirements: Docker, Foundry, Node, pnpm. Set `SEPOLIA_RPC_URL` in `blockend/.e
 ---
 
 Agora is an experimental futarchy-driven prediction market designed to enable transparent, economically rational, and verifiable decision-making in decentralized systems.
+
+---
+
+## Uniswap CCA Integration (ETHGlobal Lisbon 2026)
+
+Market bootstrap runs on **Uniswap's Continuous Clearing Auction** (Liquidity Launchpad stack). Each proposal creates two CCAs against the canonical factory — no forks, no redeploys:
+
+| Piece | Where |
+|---|---|
+| CCA factory (Uniswap, official) | [`0x000000001F26a0044BaA66024e7b6599c61963F8`](https://sepolia.etherscan.io/address/0x000000001F26a0044BaA66024e7b6599c61963F8) |
+| Auction creation + parameters | `blockend/src/core/Proposal.sol` — `initialize()` / `_buildAuctionParameters()` / `_buildSteps()` |
+| Settlement (graduate/cancel) | `blockend/src/core/Proposal.sol` — `settleAuctions()` |
+| Integration interface | `blockend/src/interfaces/ICCA.sol` |
+| Bidding UI (Permit2) | `frontend/hooks/use-auction-buy.ts`, `frontend/contracts/cca-abi.ts` |
+| Fork tests vs the real factory | `blockend/test/cca/ProposalCCA.t.sol`, `backend/test/e2e.lifecycle.test.js` |
+
+Developer feedback from the integration lives in [`FEEDBACK.md`](./FEEDBACK.md).
+
+Run tests: `cd blockend && forge test --match-path "test/cca/*"` (needs `SEPOLIA_RPC_URL`).
 
 ---
 
