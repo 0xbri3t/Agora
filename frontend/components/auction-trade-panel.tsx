@@ -325,7 +325,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
 
           <div className="rounded-lg border bg-muted/50 p-4 space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Current Price (USDC, 6d):</span>
+              <span className="text-muted-foreground">Current Price:</span>
               <span className="font-mono">${currentPrice.toFixed(2)}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
