@@ -244,6 +244,19 @@ contract ProposalBasicTest is Test {
         assertFalse(proposal.noToken().paused(), "NO should not be paused as winner");
     }
 
+    /// The Auction -> Live transition must announce itself on-chain (indexers rely on it)
+    function test_LiveTransition_emitsProposalActivated() public {
+        vm.recordLogs();
+        _createLiveProposal();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 topic = keccak256("ProposalActivated(uint256,uint256,uint256)");
+        bool found;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == topic) { found = true; break; }
+        }
+        assertTrue(found, "ProposalActivated not emitted on Live transition");
+    }
+
     /// Boots a proposal through the auction into Live state (helper for TWAP tests)
     function _createLiveProposal() internal {
         pm.createProposal(

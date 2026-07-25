@@ -84,7 +84,6 @@ contract Proposal is Ownable, IProposal {
     event ProposalActivated(uint256 indexed id, uint256 liveStart, uint256 liveEnd);
     event ProposalResolved(uint256 indexed id, uint256 when);
     event ProposalCancelled(uint256 when);
-    event ProposalLive(uint256 liveEnd);
     event TwapUpdated(uint256 twapYes, uint256 twapNo, uint256 at);
     event TokenClaimed(uint256 amout, address token);
 
@@ -255,6 +254,7 @@ contract Proposal is Ownable, IProposal {
             auctionEndTime = block.timestamp;
             liveStart = block.timestamp;
             liveEnd = liveStart + liveDuration;
+            emit ProposalActivated(id, liveStart, liveEnd);
         }
 
     }
