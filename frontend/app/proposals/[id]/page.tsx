@@ -306,7 +306,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
               />
             </div>
             <div className="lg:col-span-1">
-              <CopilotPanel proposalId={proposal.id} />
+              <CopilotPanel proposalId={id} />
             </div>
           </>
         ) : (
@@ -335,7 +335,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
                   onOrderPlaced={() => { refetchUserOrders(); refetchOrderbook(); }}
                 />
                 <MarketBalancesPanel proposalId={proposal.id} />
-                <CopilotPanel proposalId={proposal.id} />
+                <CopilotPanel proposalId={id} />
               </div>
 
             </>
