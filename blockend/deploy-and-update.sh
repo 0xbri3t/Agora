@@ -11,6 +11,8 @@ ANVIL0_PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ANVIL0=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 ANVIL1=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 COLLATERAL=0x34ad23A27Ae8A562928234D4415eD7225a44bB2E   # MockUSDC (Sepolia, present in fork)
+PYTH=0xDd24F84d36BF92C65F92307595335bdFab5Bbd21          # Pyth (Sepolia, present in fork)
+ETH_USD_FEED=0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace
 
 echo "Deploying Agora stack to local Sepolia fork..."
 DEPLOY_OUTPUT=$(DEPLOYER_PK=$ANVIL0_PK forge script script/DeployAgoraSepolia.s.sol --rpc-url $RPC --broadcast 2>&1) || {
@@ -23,6 +25,19 @@ echo "ProposalManager: $PROPOSAL_MANAGER"
 echo "Minting collateral (MockUSDC) to dev accounts..."
 cast send $COLLATERAL "mint(address,uint256)" $ANVIL0 100000000000 --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null
 cast send $COLLATERAL "mint(address,uint256)" $ANVIL1 100000000000 --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null
+
+# Seed a demo proposal so the UI has something to show right away.
+# Short auction (10 min -> 50 blocks) so `./dev.sh skip auction 1` is quick.
+echo "Creating demo proposal..."
+cast send $PROPOSAL_MANAGER \
+  "createProposal(string,string,uint256,uint256,string,uint256,uint256,address,bytes,address,bytes32)" \
+  "Adopt Aqua trading for Agora?" "Futarchy decides via YES/NO markets" \
+  600 3600 "ETH" 1000000000000000000 100000000000000000000 \
+  0x0000000000000000000000000000000000000000 0x \
+  $PYTH $ETH_USD_FEED \
+  --rpc-url $RPC --private-key $ANVIL0_PK > /dev/null \
+  && echo "Demo proposal created (id 1)" \
+  || echo "Warning: demo proposal creation failed"
 
 # Frontend addresses (merge: keep other chains' entries)
 PM_FINAL=$PROPOSAL_MANAGER COLLATERAL_FINAL=$COLLATERAL node -e '

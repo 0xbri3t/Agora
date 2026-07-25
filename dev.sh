@@ -6,6 +6,11 @@
 #   ./dev.sh status     show what's running
 #   ./dev.sh logs [svc] tail logs (svc: anvil|backend|frontend, default: all)
 #   ./dev.sh reset      stop + wipe mongo data (fresh DB next start)
+#   ./dev.sh skip ...   time travel on the local chain:
+#                         skip auction <id>  mine to the CCA end block + settle
+#                         skip live <id>     warp past the live period + resolve
+#                         skip 50            mine 50 blocks
+#                         skip 3600s         warp 3600 seconds
 #
 # Services & ports:
 #   MongoDB   localhost:27017  (docker: agora-mongo)
@@ -16,6 +21,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Seconds per block on the local chain (CCA auctions advance by block number)
+BLOCK_TIME="${BLOCK_TIME:-2}"
+RPC_LOCAL="http://127.0.0.1:8545"
 DEV_DIR="$ROOT/.dev"
 LOG_DIR="$DEV_DIR/logs"
 PID_DIR="$DEV_DIR/pids"
@@ -84,13 +92,27 @@ cmd_start() {
   info "starting mongodb (docker) ..."
   "${DC[@]}" up -d mongodb
 
-  # 3. Anvil — FORK of Sepolia so the 1inch Aqua stack exists locally
+  # 3. Anvil — FORK of Sepolia so the 1inch Aqua + Uniswap CCA stacks exist locally.
+  #    --block-time keeps blocks flowing: Uniswap CCA auctions advance by BLOCK
+  #    number, so on a mine-on-demand chain they would never end.
   local fork_url=""
   if [ -f "$ROOT/blockend/.env" ]; then
     fork_url="$(grep '^SEPOLIA_RPC_URL=' "$ROOT/blockend/.env" | cut -d= -f2-)"
   fi
   fork_url="${fork_url:-https://ethereum-sepolia-rpc.publicnode.com}"
-  start_bg anvil "$ROOT" anvil --chain-id 31337 --port 8545 --fork-url "$fork_url"
+  # Pin the fork a few blocks back from the tip: free RPCs serve recent state
+  # but 403 on deep history, and an unpinned fork drifts into archive requests.
+  local fork_block
+  fork_block="$(curl -s -m 10 -X POST -H 'Content-Type: application/json' \
+    --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' "$fork_url" \
+    | sed -E 's/.*"result":"0x([0-9a-f]+)".*/\1/')"
+  local fork_args=()
+  if [ -n "$fork_block" ]; then
+    fork_args=(--fork-block-number "$(( 16#$fork_block - 5 ))")
+    info "forking Sepolia at block $(( 16#$fork_block - 5 ))"
+  fi
+  start_bg anvil "$ROOT" anvil --chain-id 31337 --port 8545 --block-time "$BLOCK_TIME" \
+    --fork-url "$fork_url" "${fork_args[@]}"
   wait_for_rpc
 
   # 4. Contracts: deploy + mint PYUSD + sync addresses to frontend/backend
@@ -128,6 +150,81 @@ cmd_start() {
   echo ""
   echo "  Logs:   ./dev.sh logs [anvil|backend|frontend]"
   echo "  Stop:   ./dev.sh stop      Fresh DB: ./dev.sh reset"
+  echo "  Time:   ./dev.sh skip auction <id> | live <id> | <blocks> | <seconds>s"
+}
+
+# Time travel on the local chain. Uniswap CCA auctions end at a BLOCK number
+# while the proposal's Live phase ends at a TIMESTAMP, so we mine and warp.
+cmd_skip() {
+  local what="${1:-}"
+  if [ -z "$what" ]; then
+    red "usage: ./dev.sh skip auction <proposalId> | live <proposalId> | <blocks> | <seconds>s"
+    exit 1
+  fi
+  require cast "Install Foundry."
+
+  local pm
+  pm="$(grep '^PROPOSAL_MANAGER_ADDRESS=' "$ROOT/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r')"
+
+  proposal_addr() { # proposalId -> address
+    [ -n "$pm" ] || { red "PROPOSAL_MANAGER_ADDRESS not set in backend/.env"; exit 1; }
+    cast call "$pm" "proposals(uint256)(address)" "$1" --rpc-url "$RPC_LOCAL"
+  }
+
+  mine_blocks() { # count
+    local n="$1"
+    info "mining $n blocks ..."
+    cast rpc anvil_mine "$(printf '0x%x' "$n")" --rpc-url "$RPC_LOCAL" >/dev/null
+  }
+
+  warp_seconds() { # seconds
+    local s="$1"
+    info "warping $s seconds ..."
+    cast rpc evm_increaseTime "$s" --rpc-url "$RPC_LOCAL" >/dev/null
+    cast rpc anvil_mine 0x1 --rpc-url "$RPC_LOCAL" >/dev/null
+  }
+
+  case "$what" in
+    auction)
+      local p end now
+      p="$(proposal_addr "${2:?proposalId required}")"
+      end="$(cast call "$p" "auctionEndBlock()(uint64)" --rpc-url "$RPC_LOCAL")"
+      now="$(cast block-number --rpc-url "$RPC_LOCAL")"
+      if [ "$now" -ge "$end" ]; then
+        green "auction already past its end block ($now >= $end)"
+      else
+        mine_blocks $(( end - now + 1 ))
+        green "at block $(cast block-number --rpc-url "$RPC_LOCAL") (auction end was $end)"
+      fi
+      info "settling ..."
+      cast send "$p" "settleAuctions()" --rpc-url "$RPC_LOCAL" \
+        --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 >/dev/null \
+        && green "settled — proposal state: $(cast call "$p" "state()(uint8)" --rpc-url "$RPC_LOCAL")" \
+        || red "settle failed (both auctions must have graduated, or it is already settled)"
+      ;;
+    live)
+      local p live_end now_ts
+      p="$(proposal_addr "${2:?proposalId required}")"
+      live_end="$(cast call "$p" "liveEnd()(uint256)" --rpc-url "$RPC_LOCAL")"
+      now_ts="$(cast block --rpc-url "$RPC_LOCAL" --field timestamp)"
+      if [ "$now_ts" -ge "$live_end" ]; then
+        green "live period already over"
+      else
+        warp_seconds $(( live_end - now_ts + 1 ))
+      fi
+      info "resolving ..."
+      cast send "$p" "resolve()" --rpc-url "$RPC_LOCAL" \
+        --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 >/dev/null \
+        && green "resolved — proposal state: $(cast call "$p" "state()(uint8)" --rpc-url "$RPC_LOCAL")" \
+        || red "resolve failed (TWAPs must be pushed and the live period over)"
+      ;;
+    *s)
+      warp_seconds "${what%s}"
+      ;;
+    *)
+      mine_blocks "$what"
+      ;;
+  esac
 }
 
 stop_one() {
@@ -182,5 +279,6 @@ case "${1:-start}" in
   status) cmd_status ;;
   logs)   shift || true; cmd_logs "${1:-}" ;;
   reset)  cmd_reset ;;
-  *) echo "usage: ./dev.sh [start|stop|status|logs [svc]|reset]"; exit 1 ;;
+  skip)   shift || true; cmd_skip "$@" ;;
+  *) echo "usage: ./dev.sh [start|stop|status|logs [svc]|reset|skip <target>]"; exit 1 ;;
 esac
