@@ -3,7 +3,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine } from "recharts"
+import { ComposedChart, Line, Area, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine } from "recharts"
+import { MechanismInset, type RawBid } from "@/components/auction/mechanism-inset"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AuctionData, UserBalance } from "@/lib/types"
 import { formatUnits } from "viem"
@@ -229,10 +230,13 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   // update as a step, anchored at the floor when the auction starts.
   type PricePoint = { time: number; price: number; isCurrent: boolean }
   type BidPoint = { price: number; demand: number }
+  type BidMark = { time: number; price: number; amount: number }
   const [yesHistory, setYesHistory] = useState<PricePoint[]>([])
   const [noHistory, setNoHistory] = useState<PricePoint[]>([])
   const [yesDemand, setYesDemand] = useState<BidPoint[]>([])
   const [noDemand, setNoDemand] = useState<BidPoint[]>([])
+  const [yesBidMarks, setYesBidMarks] = useState<BidMark[]>([])
+  const [noBidMarks, setNoBidMarks] = useState<BidMark[]>([])
 
   const fetchAuctionActivity = useCallback(async () => {
     if (!publicClient || !yesAuctionAddr || !noAuctionAddr) return
@@ -267,9 +271,9 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       history.sort((a, b) => a.time - b.time)
       // Active bids -> cumulative demand at or above each max price (USDC 6d)
       const exited = new Set(exitLogs.map((l: any) => (l.args.bidId as bigint).toString()))
-      const active = bidLogs
+      const activeLogs = bidLogs.filter((l: any) => !exited.has((l.args.id as bigint).toString()))
+      const active = activeLogs
         .map((l: any) => l.args)
-        .filter((a: any) => !exited.has((a.id as bigint).toString()))
         .map((a: any) => ({ price: Number(q96ToPrice6d(a.priceQ96 as bigint)) / 1_000_000, amount: Number(a.amount as bigint) / 1_000_000 }))
         .sort((a, b) => a.price - b.price)
       const total = active.reduce((s, b) => s + b.amount, 0)
@@ -279,7 +283,17 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         below += b.amount
         return point
       })
-      return { history, demand }
+      // Bid marks for the price chart: when it landed, at what max price, how big
+      const marks: BidMark[] = []
+      for (const l of activeLogs.slice(-120)) {
+        const a: any = (l as any).args
+        marks.push({
+          time: await blockTs(l.blockNumber!),
+          price: Number(q96ToPrice6d(a.priceQ96 as bigint)) / 1_000_000,
+          amount: Number(a.amount as bigint) / 1_000_000,
+        })
+      }
+      return { history, demand, marks }
     }
     try {
       const [yes, no] = await Promise.all([load(yesAuctionAddr as `0x${string}`), load(noAuctionAddr as `0x${string}`)])
@@ -287,6 +301,8 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       setNoHistory(no.history)
       setYesDemand(yes.demand)
       setNoDemand(no.demand)
+      setYesBidMarks(yes.marks)
+      setNoBidMarks(no.marks)
     } catch {
       // silent: chart falls back to floor + live point
     }
@@ -314,9 +330,56 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
 
   // Y domain: from 0 to a hair above the highest clearing seen (clearing RISES from the floor)
   const yMax = useMemo(() => {
-    const peak = Math.max(startPrice ?? 0, yesPriceNow, noPriceNow, ...yesHistory.map(p => p.price), ...noHistory.map(p => p.price))
+    const peak = Math.max(
+      startPrice ?? 0,
+      yesPriceNow,
+      noPriceNow,
+      ...yesHistory.map(p => p.price),
+      ...noHistory.map(p => p.price),
+      // Bid bubbles sit at their max price — keep them inside the plot
+      ...yesBidMarks.map(b => b.price),
+      ...noBidMarks.map(b => b.price),
+    )
     return peak > 0 ? peak * 1.15 : 1
-  }, [startPrice, yesPriceNow, noPriceNow, yesHistory, noHistory])
+  }, [startPrice, yesPriceNow, noPriceNow, yesHistory, noHistory, yesBidMarks, noBidMarks])
+
+  // --- Issuance: the contract releases supply evenly per block, so released
+  // tokens are a straight line from startTime to endTime. Cleared per side is
+  // read from the CCA (supply - remainingSupply). All in whole tokens.
+  const supplyTokens = useMemo(() => (typeof yesCap === "bigint" && yesCap > 0n ? Number(yesCap) / 1e18 : 0), [yesCap])
+  const releasedTokens = useMemo(() => {
+    if (!startTime || !endTime || endTime <= startTime || supplyTokens <= 0) return 0
+    const frac = Math.min(1, Math.max(0, (now - startTime) / (endTime - startTime)))
+    return supplyTokens * frac
+  }, [startTime, endTime, now, supplyTokens])
+  const clearedYesTokens = useMemo(() => Math.max(0, supplyTokens - Number(yesRemaining) / 1e18), [supplyTokens, yesRemaining])
+  const clearedNoTokens = useMemo(() => Math.max(0, supplyTokens - Number(noRemaining) / 1e18), [supplyTokens, noRemaining])
+  const releasePerMin = useMemo(() => {
+    if (!startTime || !endTime || endTime <= startTime || supplyTokens <= 0) return 0
+    return (supplyTokens / (endTime - startTime)) * 60
+  }, [startTime, endTime, supplyTokens])
+  const releasedPct = supplyTokens > 0 ? (releasedTokens / supplyTokens) * 100 : 0
+
+  // Emission strip series: the released line up to now, and its dashed
+  // projection to the end of the auction.
+  const emissionSeries = useMemo(() => {
+    if (!startTime || !endTime || supplyTokens <= 0) return { done: [], ahead: [] }
+    const clampedNow = Math.min(Math.max(now, startTime), endTime)
+    return {
+      done: [
+        { time: startTime, released: 0 },
+        { time: clampedNow, released: releasedTokens },
+      ],
+      ahead: [
+        { time: clampedNow, released: releasedTokens },
+        { time: endTime, released: supplyTokens },
+      ],
+    }
+  }, [startTime, endTime, now, releasedTokens, supplyTokens])
+
+  // Raw active bids for the mechanism inset (side, max price, budget)
+  const yesRawBids = useMemo<RawBid[]>(() => yesBidMarks.map((b) => ({ price: b.price, amount: b.amount })), [yesBidMarks])
+  const noRawBids = useMemo<RawBid[]>(() => noBidMarks.map((b) => ({ price: b.price, amount: b.amount })), [noBidMarks])
 
   // Manual refetch to update instantly after tx and every 10s
   const refetchNow = useCallback(async () => {
@@ -548,6 +611,23 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return <Dot {...dotProps} r={0} key={`dot-${dotProps.index}`} />
   }
 
+  // A bid drawn where it happened: radius grows with the square root of its
+  // USDC budget (area ~ money), bright while its max price still beats the
+  // side's clearing, dimmed once the market has moved past it.
+  const bidBubble = (color: string, clearingNow: number) => (props: any) => {
+    const { cx, cy, payload } = props
+    if (typeof cx !== "number" || typeof cy !== "number") return <g />
+    const r = Math.max(4, Math.min(13, Math.sqrt(payload.amount || 0) / 6))
+    const winning = payload.price >= clearingNow
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={r} fill={color} opacity={winning ? 0.75 : 0.28} stroke="var(--card)" strokeWidth={1.5} />
+      </g>
+    )
+  }
+
+  const cnDemandGrid = "grid grid-cols-1 md:grid-cols-[1fr_320px] gap-4 items-start"
+
   const ChartCard = (
     <Card className={fullHeight ? "h-full flex flex-col" : undefined}>
       <CardHeader>
@@ -570,6 +650,17 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
             </Badge>
           </div>
         </div>
+        {supplyTokens > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-mono tabular-nums text-foreground">
+              {releasedTokens.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              <span className="text-muted-foreground"> / {supplyTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} tokens released</span>
+            </span>
+            <span className="font-mono tabular-nums">{releasedPct.toFixed(1)}%</span>
+            <span className="font-mono tabular-nums">{releasePerMin.toLocaleString(undefined, { maximumFractionDigits: 2 })} tok/min</span>
+            <span className="hidden sm:inline">· even per-block issuance</span>
+          </div>
+        )}
       </CardHeader>
       <CardContent className={fullHeight ? "min-h-[16rem] flex-1" : undefined}>
         <Tabs defaultValue="price" className={fullHeight ? "flex h-full flex-col" : undefined}>
@@ -578,9 +669,10 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
             <TabsTrigger value="demand">Demand</TabsTrigger>
           </TabsList>
           <TabsContent value="price" className={fullHeight ? "flex-1" : undefined}>
-            <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
+            <div className={fullHeight ? "h-full min-h-[14rem] flex flex-col" : "h-72 flex flex-col"}>
+              <div className="flex-1 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                <ComposedChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={textColor} opacity={isDark ? 0.25 : 0.15} />
                   <XAxis
                     dataKey="time"
@@ -639,19 +731,62 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     dot={seriesDot(NO_COLOR)}
                     isAnimationActive={false}
                   />
-                </LineChart>
+                  {/* Bids as bubbles: when, at what max price, sized by budget.
+                      Bright while still competitive (max >= that side's clearing),
+                      dimmed once the clearing has passed them by. */}
+                  <Scatter data={yesBidMarks} name="YES bid" dataKey="price" shape={bidBubble(YES_COLOR, yesPriceNow)} isAnimationActive={false} />
+                  <Scatter data={noBidMarks} name="NO bid" dataKey="price" shape={bidBubble(NO_COLOR, noPriceNow)} isAnimationActive={false} />
+                </ComposedChart>
               </ResponsiveContainer>
+              </div>
+              {/* Issuance strip: the released-supply line ticking up in real time,
+                  its dashed projection to auction close, and where each side's
+                  cleared amount sits against it. Same time axis as the price chart. */}
+              {supplyTokens > 0 && startTime && endTime && (
+                <div className="h-20 mt-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart margin={{ top: 4, right: 20, bottom: 0, left: 0 }}>
+                      <XAxis
+                        dataKey="time"
+                        type="number"
+                        scale="linear"
+                        domain={[startTime, endTime]}
+                        hide
+                      />
+                      <YAxis
+                        domain={[0, supplyTokens * 1.05]}
+                        width={72}
+                        fontSize={10}
+                        stroke={textColor}
+                        tick={{ fill: textColor }}
+                        tickFormatter={(v: number) => `${formatPriceShort(v)} tok`}
+                        tickCount={3}
+                      />
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        formatter={(value: any, name: any) => [`${formatPriceFull(Number(value))} tokens`, name]}
+                        labelFormatter={(label: any) => timeTickFormatter(Number(label))}
+                      />
+                      <Area data={emissionSeries.done} name="Released" type="linear" dataKey="released" stroke={textColor} strokeWidth={1.5} fill={textColor} fillOpacity={0.12} isAnimationActive={false} dot={false} />
+                      <Line data={emissionSeries.ahead} name="To release" type="linear" dataKey="released" stroke={textColor} strokeWidth={1.5} strokeDasharray="4 4" opacity={0.45} dot={false} isAnimationActive={false} />
+                      {clearedYesTokens > 0 && <ReferenceLine y={clearedYesTokens} stroke={YES_COLOR} strokeWidth={1.5} opacity={0.8} label={{ value: "YES sold", position: "insideBottomRight", fill: YES_COLOR, fontSize: 10 }} />}
+                      {clearedNoTokens > 0 && <ReferenceLine y={clearedNoTokens} stroke={NO_COLOR} strokeWidth={1.5} opacity={0.8} label={{ value: "NO sold", position: "insideBottomRight", fill: NO_COLOR, fontSize: 10 }} />}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </TabsContent>
           <TabsContent value="demand" className={fullHeight ? "flex-1" : undefined}>
-            <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
+            <div className={cnDemandGrid}>
+              <div className={fullHeight ? "h-full min-h-[14rem]" : "h-72"}>
               {yesDemand.length === 0 && noDemand.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   No active bids yet — the demand curve builds as bids arrive.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <ComposedChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={textColor} opacity={isDark ? 0.25 : 0.15} />
                     <XAxis
                       dataKey="price"
@@ -681,9 +816,21 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     {noPriceNow > 0 && <ReferenceLine x={noPriceNow} stroke={NO_COLOR} strokeDasharray="4 4" opacity={0.6} />}
                     <Line data={yesDemand} name="YES" type="stepAfter" dataKey="demand" stroke={YES_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
                     <Line data={noDemand} name="NO" type="stepAfter" dataKey="demand" stroke={NO_COLOR} strokeWidth={2} dot={false} isAnimationActive={false} />
-                  </LineChart>
+                  </ComposedChart>
                 </ResponsiveContainer>
               )}
+              </div>
+              <MechanismInset
+                yesBids={yesRawBids}
+                noBids={noRawBids}
+                releasedTokens={releasedTokens}
+                totalSupplyTokens={supplyTokens}
+                floorPrice={startPrice ?? 0}
+                clearingYes={yesPriceNow}
+                clearingNo={noPriceNow}
+                yesColor={YES_COLOR}
+                noColor={NO_COLOR}
+              />
             </div>
           </TabsContent>
         </Tabs>
