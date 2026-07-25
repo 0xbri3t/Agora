@@ -1,0 +1,9 @@
+
+blockend/src/Market.sol
+
+
+./frontend/contracts/deployed-addresses.json
+
+# Local agent tooling (not part of the project)
+.agents/
+.claude/

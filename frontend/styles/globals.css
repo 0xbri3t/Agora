@@ -1,0 +1,209 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Updated light theme with electric green crypto palette */
+:root {
+  /* Soften light mode background to a gentle off-white */
+  --background: #fafafa;
+  --foreground: #0f172a;
+  /* Keep cards slightly brighter for contrast against softer background */
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  /* Changed primary from cyan to electric green */
+  --primary: #00ff85;
+  --primary-foreground: #0f172a;
+  /* Changed secondary to darker purple */
+  --secondary: #7c3aed;
+  --secondary-foreground: #ffffff;
+  --muted: #e5e7eb;
+  --muted-foreground: #64748b;
+  /* Changed accent to match primary green */
+  --accent: #00ff85;
+  --accent-foreground: #0f172a;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  /* Darken light-mode borders a bit for better separation */
+  --border: #cbd5e1; /* slate-300 */
+  --input: #cbd5e1;  /* match border tone */
+  /* Changed ring to bright green for focus states */
+  --ring: #00ff85;
+  --chart-1: #00ff85;
+  --chart-2: #ef4444;
+  --chart-3: #f59e0b;
+  /* Changed chart-4 to darker purple */
+  --chart-4: #7c3aed;
+  --chart-5: #ec4899;
+  --chart-line: #000000;
+  --radius: 0.625rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f172a;
+  /* Updated sidebar colors to match new green primary */
+  --sidebar-primary: #00ff85;
+  --sidebar-primary-foreground: #0f172a;
+  --sidebar-accent: #e5e7eb;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #cbd5e1; /* match border tone */
+  --sidebar-ring: #00ff85;
+}
+
+/* Updated dark theme with pure black background */
+.dark {
+  /* Changed background to pure black for modern crypto aesthetic */
+  --background: #000000;
+  --foreground: #e2e8f0;
+  /* Changed card background to very dark gray for contrast */
+  --card: #0a0a0a00;
+  --card-foreground: #e2e8f0;
+  --popover: #0a0a0a;
+  --popover-foreground: #e2e8f0;
+  --primary: #00ff85;
+  --primary-foreground: #000000;
+  --secondary: #7c3aed;
+  --secondary-foreground: #ffffff;
+  /* Adjusted muted colors for better contrast on black */
+  --muted: #1a1a1a;
+  --muted-foreground: #94a3b8;
+  --accent: #00ff85;
+  --accent-foreground: #000000;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  /* Adjusted border for visibility on black */
+  /* --border: #262626; */
+  --border: #e5e5e562;
+  --input: #262626;
+  --ring: #00ff85;
+  --chart-1: #00ff85;
+  --chart-2: #ef4444;
+  --chart-3: #f59e0b;
+  --chart-4: #7c3aed;
+  --chart-5: #ec4899;
+  --chart-line: #00ff85;
+  --radius: 0.625rem;
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: #00ff85;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #1a1a1a;
+  --sidebar-accent-foreground: #e2e8f0;
+  --sidebar-border: #262626;
+  --sidebar-ring: #00ff85;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-line: var(--chart-line);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Hide spinner arrows in number inputs for trade panel amount fields */
+input.no-spin::-webkit-outer-spin-button,
+input.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spin[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  /* Added modern gradient background for crypto aesthetic */
+  body {
+    @apply bg-background text-foreground;
+    position: relative;
+  }
+
+  /* Light mode gradient - subtle and modern */
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: -1;
+    /* Updated gradient to use darker purple */
+    background: radial-gradient(circle at 20% 20%, rgba(0, 255, 133, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(124, 58, 237, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.05) 0%, transparent 50%);
+    /* Match base to the softened light background */
+    background-color: var(--background);
+  }
+
+  /* Dark mode gradient - vibrant on pure black background */
+  .dark body::before {
+    /* Updated gradient background to pure black base */
+    background: radial-gradient(circle at 20% 20%, rgba(0, 255, 133, 0.15) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(124, 58, 237, 0.12) 0%, transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.08) 0%, transparent 50%);
+    background-color: #000000;
+  }
+}
+
+/* Multi-line clamp utilities (ellipsis) */
+/* .clamp-1 {
+
+  display: -webkit-box;
+  line-clamp: 1;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clamp-2 {
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.clamp-3 {
+  display: -webkit-box;
+  line-clamp: 3;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+} */

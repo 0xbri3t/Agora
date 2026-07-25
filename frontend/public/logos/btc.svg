@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BTC">
+  <rect x="0" y="0" width="128" height="128" rx="16" fill="#F7931A"/>
+  <g transform="translate(64,64)">
+    <circle r="36" fill="#fff" opacity="0.15"/>
+    <path fill="#fff" d="M-10 -24h8v-8h6v8h6a12 12 0 010 24 12 12 0 010 24h-6v8h-6v-8h-8v-8h8v-32h-8zM4 -8h6a6 6 0 000 -12H4v12zm0 24h6a6 6 0 000 -12H4v12z"/>
+  </g>
+</svg>

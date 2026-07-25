@@ -1,0 +1,6 @@
+[submodule "blockend/lib/forge-std"]
+	path = blockend/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "blockend/lib/openzeppelin-contracts"]
+	path = blockend/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts

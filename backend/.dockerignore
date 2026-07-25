@@ -1,0 +1,14 @@
+# Add to .dockerignore to improve build performance
+node_modules
+npm-debug.log
+.npm
+.git
+.gitignore
+README*.md
+.env
+.nyc_output
+coverage
+.docker
+Dockerfile*
+docker-compose*
+.dockerignore

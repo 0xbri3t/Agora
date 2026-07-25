@@ -1,0 +1,6 @@
+{
+  "abi": [
+    {"type":"function","name":"totalSupply","stateMutability":"view","inputs":[],"outputs":[{"type":"uint256"}]},
+    {"type":"function","name":"cap","stateMutability":"view","inputs":[],"outputs":[{"type":"uint256"}]}
+  ]
+}
