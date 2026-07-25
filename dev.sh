@@ -158,6 +158,7 @@ cmd_start() {
   RPC_URL="http://127.0.0.1:8545" \
   RPC_WS_URL="ws://127.0.0.1:8545" \
   CHAIN_ID="31337" \
+  SUBGRAPH_URL="" \
   start_bg backend "$ROOT/backend" npm run dev
   wait_for backend http://localhost:3001/health 90
 
