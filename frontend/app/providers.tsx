@@ -4,7 +4,8 @@ import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
-import { AuthProvider, OpenfortProvider } from '@openfort/react'
+import { AuthProvider, OpenfortProvider, useOpenfortCore } from '@openfort/react'
+import { useEthereumEmbeddedWallet } from '@openfort/react/ethereum'
 import { AccountTypeEnum } from '@openfort/openfort-js'
 import { OpenfortWagmiBridge } from '@openfort/react/wagmi'
 import { config } from '@/lib/wagmi-config'
@@ -14,6 +15,28 @@ import { GlobalWalletAuth } from '@/components/global-wallet-auth'
 const OPENFORT_KEY = process.env.NEXT_PUBLIC_OPENFORT_PUBLISHABLE_KEY
 const SHIELD_KEY = process.env.NEXT_PUBLIC_SHIELD_PUBLISHABLE_KEY
 const SPONSORSHIP_ID = process.env.NEXT_PUBLIC_OPENFORT_SPONSORSHIP_ID
+
+/**
+ * @openfort/react 1.6.3 passes the gas policy to openfort-js as `{ policy }`,
+ * but openfort-js 1.5.3 renamed that option to `feeSponsorship` — so the
+ * sponsorship silently never reaches the embedded provider and UserOps go out
+ * without a paymaster ("AA21 didn't pay prefund"). The provider is a
+ * singleton with an update path, so re-applying the policy under the right
+ * key once the wallet is up fixes every later transaction.
+ */
+function FeeSponsorshipFix() {
+  const { client } = useOpenfortCore()
+  const { status } = useEthereumEmbeddedWallet()
+
+  useEffect(() => {
+    if (status !== 'connected' || !SPONSORSHIP_ID) return
+    client.embeddedWallet
+      .getEthereumProvider({ feeSponsorship: SPONSORSHIP_ID })
+      .catch((err: unknown) => console.error('Failed to apply fee sponsorship policy:', err))
+  }, [status, client])
+
+  return null
+}
 
 /**
  * Wallet layer. With an Openfort publishable key configured we get guest
@@ -51,6 +74,7 @@ function WalletProvider({ children }: { children: ReactNode }) {
           authProviders: [AuthProvider.GUEST, AuthProvider.EMAIL_OTP, AuthProvider.WALLET],
         }}
       >
+        <FeeSponsorshipFix />
         {children}
       </OpenfortProvider>
     </OpenfortWagmiBridge>
