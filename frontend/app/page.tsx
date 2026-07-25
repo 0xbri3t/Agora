@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button"
 import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
 import { PixelAgora } from "@/components/landing/pixel-agora"
 import { DecisionFlow } from "@/components/landing/decision-flow"
-
-const BUILT_ON = ["1inch Aqua", "Ethereum Sepolia", "Pyth", "USDC"]
+import { PartnerLoop } from "@/components/landing/partner-loop"
 
 export default function HomePage() {
   return (
@@ -66,18 +65,9 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-border">
-        <div className="container mx-auto flex flex-col items-center gap-6 px-6 py-14 md:flex-row md:justify-between">
-          <span className="text-sm text-muted-foreground">Built on</span>
-          <ul className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
-            {BUILT_ON.map((name) => (
-              <li
-                key={name}
-                className="font-display text-base text-foreground opacity-60"
-              >
-                {name}
-              </li>
-            ))}
-          </ul>
+        <div className="container mx-auto px-6 py-16 md:py-24">
+          <p className="mb-12 text-center text-sm text-muted-foreground">Built with</p>
+          <PartnerLoop className="mx-auto max-w-4xl" />
         </div>
       </section>
     </div>
