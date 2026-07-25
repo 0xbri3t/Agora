@@ -159,6 +159,32 @@ Agora is an experimental futarchy-driven prediction market designed to enable tr
 
 ---
 
+## The Graph Integration (ETHGlobal Lisbon 2026)
+
+The **Agora subgraph** is the copilot's only source of chain data — no mocks, no static fixtures.
+
+| Piece | Where |
+|---|---|
+| Live subgraph (Sepolia) | [`agora` on Subgraph Studio](https://thegraph.com/studio/subgraph/agora) — queries: `https://api.studio.thegraph.com/query/1756977/agora/v0.0.1` |
+| Schema + mappings | `subgraph/schema.graphql`, `subgraph/src/{proposal-manager,proposal,aqua,router,cca}.ts` |
+| Copilot analytics | `backend/src/services/copilotService.js` |
+| Copilot API | `backend/src/routes/copilot.js` — `/api/copilot/:id/insights`, `/api/copilot/:id/ask` |
+| Copilot UI | `frontend/components/copilot-panel.tsx` |
+
+What it indexes: proposals and their lifecycle, the two Uniswap CCAs per proposal with every bid, the 1inch Aqua lot quotes and fills, and attestor TWAP pushes.
+
+What the agent does with it — it reasons, it does not print rows:
+- **Implied probability** of the proposal passing, from TWAPs (or best asks before any TWAP exists)
+- **Cross-maker arbitrage**: flags when the cheapest YES plus the cheapest NO costs under 1 USDC (a risk-free basket), and when a single maker quotes a pair summing over 1 USDC — the invariant the `AgoraComplement` VM instruction enforces locally, watched here market-wide
+- **Bootstrap read** during the auction: how much capital each side has committed, which way it leans, and a warning when one bidder alone carries a side
+- **TWAP trend** toward resolution
+
+Free-form questions go through `/api/copilot/:id/ask`, answered from the same subgraph data (with Claude when `ANTHROPIC_API_KEY` is set, and a deterministic reading otherwise).
+
+Deploy your own: `cd subgraph && npx graph auth <key> && npm run deploy`, then point `SUBGRAPH_URL` at the resulting endpoint.
+
+---
+
 ## Uniswap CCA Integration (ETHGlobal Lisbon 2026)
 
 Market bootstrap runs on **Uniswap's Continuous Clearing Auction** (Liquidity Launchpad stack). Each proposal creates two CCAs against the canonical factory — no forks, no redeploys:
