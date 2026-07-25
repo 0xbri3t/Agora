@@ -5,23 +5,35 @@ import { useAccount, useReadContract, useChainId, usePublicClient } from "wagmi"
 import { parseUnits } from "viem"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
-import { dutchAuction_abi } from "@/contracts/dutchAuction-abi"
+import { cca_abi, permit2_abi, PERMIT2_ADDRESS, q96ToPrice6d, snapToTick } from "@/contracts/cca-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { getContractAddress } from "@/contracts/constants"
 
 export type AuctionSide = "YES" | "NO"
 
-const SIX_DECIMALS = 10n ** 6n // PyUSD and oracle price are 6 decimals
+// Ethers fragments for the write path (viem abi objects are read-side)
+const CCA_WRITE_ABI = [
+  "function submitBid(uint256 maxPriceQ96, uint128 amount, address owner, bytes hookData) payable returns (uint256)",
+  "function exitBid(uint256 bidId)",
+  "function claimTokens(uint256 bidId)",
+]
+const PERMIT2_WRITE_ABI = [
+  "function approve(address token, address spender, uint160 amount, uint48 expiration)",
+]
 
+/**
+ * Bid on the Uniswap Continuous Clearing Auction bootstrapping one side of the
+ * market. The user enters a USDC budget; the max price is set a comfortable
+ * margin above the current clearing price (snapped to the tick grid).
+ */
 export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x${string}`; side: AuctionSide }) {
   const { address } = useAccount()
   const chainId = useChainId()
   const publicClient = usePublicClient()
-  const [amount, setAmount] = useState<string>("") // PyUSD amount (6d)
+  const [amount, setAmount] = useState<string>("") // USDC budget (6d)
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>()
 
   // Read addresses from Proposal
-  const { data: treasury } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "treasury" })
   const { data: yesAuctionAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "yesAuction" })
   const { data: noAuctionAddr } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "noAuction" })
   const { data: yesToken } = useReadContract({ address: proposalAddress, abi: proposal_abi, functionName: "yesToken" })
@@ -29,28 +41,26 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
 
   const auctionAddress = useMemo(() => (side === "YES" ? (yesAuctionAddr as `0x${string}`) : (noAuctionAddr as `0x${string}`)), [side, yesAuctionAddr, noAuctionAddr])
   const marketToken = useMemo(() => (side === "YES" ? (yesToken as `0x${string}`) : (noToken as `0x${string}`)), [side, yesToken, noToken])
-  const pyusd = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
+  const usdcAddress = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
 
-  const { data: cap } = useReadContract({ address: marketToken, abi: marketToken_abi, functionName: "cap" })
-  const { data: totalSupply } = useReadContract({ address: marketToken, abi: marketToken_abi, functionName: "totalSupply" })
+  const { data: clearingQ96 } = useReadContract({ address: auctionAddress, abi: cca_abi, functionName: "clearingPrice" })
   const { data: userBal } = useReadContract({ address: marketToken, abi: marketToken_abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"] })
-  const { data: onchainPrice } = useReadContract({ address: auctionAddress, abi: dutchAuction_abi, functionName: "priceNow" }) // 6d
-  const { data: pyusdBal } = useReadContract({
-    address: pyusd,
+  const { data: usdcBal } = useReadContract({
+    address: usdcAddress,
     abi: marketToken_abi,
     functionName: "balanceOf",
     args: [address ?? "0x0000000000000000000000000000000000000000"],
   })
 
   // Local mirrors to enable instant post-tx updates and real-time polling
-  const remainingComputed = useMemo(() => (cap && totalSupply ? (cap as bigint) - (totalSupply as bigint) : 0n), [cap, totalSupply])
   const [remainingState, setRemainingState] = useState<bigint>(0n)
   const [userTokenBalanceState, setUserTokenBalanceState] = useState<bigint>(0n)
-  const [pyusdBalanceState, setPyusdBalanceState] = useState<bigint>(0n)
+  const [usdcBalanceState, setUsdcBalanceState] = useState<bigint>(0n)
+  const [clearingPrice6d, setClearingPrice6d] = useState<bigint>(0n)
 
-  useEffect(() => { if (typeof remainingComputed === "bigint") setRemainingState(remainingComputed) }, [remainingComputed])
   useEffect(() => { if (typeof userBal === "bigint") setUserTokenBalanceState(userBal) }, [userBal])
-  useEffect(() => { if (typeof pyusdBal === "bigint") setPyusdBalanceState(pyusdBal) }, [pyusdBal])
+  useEffect(() => { if (typeof usdcBal === "bigint") setUsdcBalanceState(usdcBal) }, [usdcBal])
+  useEffect(() => { if (typeof clearingQ96 === "bigint") setClearingPrice6d(q96ToPrice6d(clearingQ96)) }, [clearingQ96])
 
   const [isApproving, setIsApproving] = useState(false)
   const [isBuying, setIsBuying] = useState(false)
@@ -59,67 +69,40 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
   // Helper to refetch balances/remaining after a successful tx or on a timer
   const refetchOnchain = useCallback(async () => {
     try {
-      if (!publicClient || !address || !marketToken || !pyusd) return
-      const [capNow, tsNow, userNow, pyusdNow] = await Promise.all([
-        publicClient.readContract({ address: marketToken as `0x${string}`, abi: marketToken_abi, functionName: 'cap' }) as Promise<bigint>,
-        publicClient.readContract({ address: marketToken as `0x${string}`, abi: marketToken_abi, functionName: 'totalSupply' }) as Promise<bigint>,
+      if (!publicClient || !address || !marketToken || !usdcAddress || !auctionAddress) return
+      const [remainingNow, clearingNow, userNow, usdcNow] = await Promise.all([
+        publicClient.readContract({ address: auctionAddress, abi: cca_abi, functionName: 'remainingSupply' }) as Promise<bigint>,
+        publicClient.readContract({ address: auctionAddress, abi: cca_abi, functionName: 'clearingPrice' }) as Promise<bigint>,
         publicClient.readContract({ address: marketToken as `0x${string}`, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as Promise<bigint>,
-        publicClient.readContract({ address: pyusd as `0x${string}`, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as Promise<bigint>,
+        publicClient.readContract({ address: usdcAddress as `0x${string}`, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as Promise<bigint>,
       ])
-      setRemainingState((capNow ?? 0n) - (tsNow ?? 0n))
+      setRemainingState(remainingNow ?? 0n)
+      setClearingPrice6d(q96ToPrice6d(clearingNow ?? 0n))
       setUserTokenBalanceState(userNow ?? 0n)
-      setPyusdBalanceState(pyusdNow ?? 0n)
+      setUsdcBalanceState(usdcNow ?? 0n)
     } catch (e) {
       // silent
     }
-  }, [publicClient, address, marketToken, pyusd])
+  }, [publicClient, address, marketToken, usdcAddress, auctionAddress])
 
-  // Lightweight polling to keep remaining up-to-date while auction is live
+  // Lightweight polling to keep clearing price up-to-date while auction is live
   useEffect(() => {
-    if (!publicClient || !marketToken) return
+    if (!publicClient || !auctionAddress) return
     const id = setInterval(() => { void refetchOnchain() }, 3000)
     return () => clearInterval(id)
-  }, [publicClient, marketToken, refetchOnchain])
+  }, [publicClient, auctionAddress, refetchOnchain])
 
   const doApproveAndBuy = useCallback(async () => {
     setError(null)
-    // Required preconditions
-    if (!address) {
-      const err = "Connect wallet"
-      setError(err)
-      throw new Error(err)
-    }
-    if (!pyusd) {
-      const err = "Token not configured for this network"
-      setError(err)
-      throw new Error(err)
-    }
-    if (!treasury) {
-      const err = "Treasury not ready"
-      setError(err)
-      throw new Error(err)
-    }
-    if (!auctionAddress) {
-      const err = "Auction not ready"
-      setError(err)
-      throw new Error(err)
-    }
+    if (!address) { setError("Connect wallet"); throw new Error("Connect wallet") }
+    if (!usdcAddress) { setError("Token not configured for this network"); throw new Error("no usdc") }
+    if (!auctionAddress) { setError("Auction not ready"); throw new Error("no auction") }
 
-    // User-entered PyUSD amount -> 6 decimals
-    const pay = parseUnits(amount || "0", 6)
-    if (pay === 0n) {
-      const err = "Enter an amount greater than 0"
-      setError(err)
-      throw new Error(err)
-    }
+    const budget = parseUnits(amount || "0", 6)
+    if (budget === 0n) { setError("Enter an amount greater than 0"); throw new Error("zero amount") }
 
-    // Setup ethers provider/signer
     const anyWindow = window as any
-    if (!anyWindow?.ethereum) {
-      const err = "No wallet found"
-      setError(err)
-      throw new Error(err)
-    }
+    if (!anyWindow?.ethereum) { setError("No wallet found"); throw new Error("no wallet") }
     const provider = new ethers.BrowserProvider(anyWindow.ethereum)
     const signer = await provider.getSigner()
 
@@ -132,69 +115,46 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
       }
     } catch {}
 
-    // Fresh preflight: auction live and supply available
-    let payAmount = pay
-    try {
-      if (!publicClient) throw new Error('No client')
-      const [priceLatest, capNow, tsNow, pyusdNow] = await Promise.all([
-        publicClient.readContract({ address: auctionAddress as `0x${string}`, abi: dutchAuction_abi, functionName: 'priceNow' }) as Promise<bigint>, // 6d
-        publicClient.readContract({ address: marketToken as `0x${string}`, abi: marketToken_abi, functionName: 'cap' }) as Promise<bigint>,
-        publicClient.readContract({ address: marketToken as `0x${string}`, abi: marketToken_abi, functionName: 'totalSupply' }) as Promise<bigint>,
-        publicClient.readContract({ address: pyusd as `0x${string}`, abi: marketToken_abi, functionName: 'balanceOf', args: [address as `0x${string}`] }) as Promise<bigint>,
-      ])
-      if (priceLatest === 0n) {
-        const err = 'Auction ended'
-        setError(err)
-        throw new Error(err)
-      }
-      if (tsNow >= capNow) {
-        const err = 'Sold out'
-        setError(err)
-        throw new Error(err)
-      }
-      // const remainingNow = capNow - tsNow // token 18d
-      // Max PyUSD you can spend to not exceed remaining tokens at current price: remaining * price (6d) / 1e18
-      // const maxPay = (remainingNow * priceLatest) / (10n ** 18n)
-      // 1% buffer to avoid overflow if price drops before mine
-      // const buffer = maxPay / 100n > 0n ? maxPay / 100n : 1n
-      // const maxPayWithBuffer = maxPay > buffer ? maxPay - buffer : 0n
-      // if (payAmount > maxPayWithBuffer) {
-        // payAmount = maxPayWithBuffer
-      // }
-      if (payAmount <= 0n) {
-        const err = 'Amount too high for remaining capacity'
-        setError(err)
-        throw new Error(err)
-      }
-      if (payAmount > (pyusdNow ?? 0n)) {
-        const err = 'Insufficient PyUSD balance'
-        setError(err)
-        throw new Error(err)
-      }
-    } catch (e) {
-      throw e
-    }
+    if (!publicClient) { setError("No client"); throw new Error("no client") }
 
-    const erc20 = new ethers.Contract(pyusd as string, marketToken_abi as any, signer)
-    const auction = new ethers.Contract(auctionAddress as string, dutchAuction_abi as any, signer)
+    // Preflight: auction still open, bid above clearing, budget available
+    const [clearingNow, tickSpacing, endBlock, blockNow, usdcNow] = await Promise.all([
+      publicClient.readContract({ address: auctionAddress, abi: cca_abi, functionName: 'clearingPrice' }) as Promise<bigint>,
+      publicClient.readContract({ address: auctionAddress, abi: cca_abi, functionName: 'tickSpacing' }) as Promise<bigint>,
+      publicClient.readContract({ address: auctionAddress, abi: cca_abi, functionName: 'endBlock' }) as Promise<bigint>,
+      publicClient.getBlockNumber(),
+      publicClient.readContract({ address: usdcAddress, abi: marketToken_abi, functionName: 'balanceOf', args: [address] }) as Promise<bigint>,
+    ])
+    if (blockNow >= endBlock) { setError('Auction ended'); throw new Error('Auction ended') }
+    if (budget > (usdcNow ?? 0n)) { setError('Insufficient USDC balance'); throw new Error('Insufficient USDC') }
 
-    // Check current allowance and approve if needed (approve to Treasury)
+    // Max price: 2x current clearing, snapped down to the tick grid, and at
+    // least one tick above clearing so the bid is accepted.
+    let maxPriceQ96 = snapToTick(clearingNow * 2n, tickSpacing)
+    if (maxPriceQ96 <= clearingNow) maxPriceQ96 = snapToTick(clearingNow, tickSpacing) + tickSpacing
+
+    // Permit2 flow: USDC -> Permit2 (ERC20 approve) + Permit2 allowance -> auction
     try {
-      const cur: bigint = await erc20.allowance(address, treasury as string)
-      if (cur < payAmount) {
-        setIsApproving(true)
-        const tx = await erc20.approve(treasury as string, payAmount)
+      setIsApproving(true)
+      const erc20 = new ethers.Contract(usdcAddress, marketToken_abi as any, signer)
+      const cur: bigint = await erc20.allowance(address, PERMIT2_ADDRESS)
+      if (cur < budget) {
+        const tx = await erc20.approve(PERMIT2_ADDRESS, ethers.MaxUint256)
         setLastHash(tx.hash)
-        const rcpt = await tx.wait(1)
-        if (!rcpt || (rcpt.status !== 1n && rcpt.status !== 1)) {
-          setIsApproving(false)
-          const err = "Approve failed on-chain"
-          setError(err)
-          throw new Error(err)
-        }
-        setIsApproving(false)
-        try { window.dispatchEvent(new Event('auction:tx')) } catch {}
+        await tx.wait(1)
       }
+      const [p2amount] = await publicClient.readContract({
+        address: PERMIT2_ADDRESS, abi: permit2_abi, functionName: 'allowance',
+        args: [address, usdcAddress, auctionAddress],
+      }) as unknown as [bigint, number, number]
+      if (p2amount < budget) {
+        const permit2 = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_WRITE_ABI, signer)
+        const tx = await permit2.approve(usdcAddress, auctionAddress, (1n << 160n) - 1n, (1n << 48n) - 1n)
+        setLastHash(tx.hash)
+        await tx.wait(1)
+      }
+      setIsApproving(false)
+      try { window.dispatchEvent(new Event('auction:tx')) } catch {}
     } catch (e: any) {
       setIsApproving(false)
       const msg = e?.shortMessage || e?.message || "Approve failed"
@@ -202,28 +162,28 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
       throw new Error(msg)
     }
 
-    // Proceed to buy using 6d payAmount
+    // Submit the bid
     try {
       setIsBuying(true)
-      const tx2 = await auction.buyLiquidity(payAmount)
+      const auction = new ethers.Contract(auctionAddress, CCA_WRITE_ABI, signer)
+      const tx2 = await auction.submitBid(maxPriceQ96, budget, address, "0x")
       setLastHash(tx2.hash)
       const rcpt2 = await tx2.wait(1)
       if (!rcpt2 || (rcpt2.status !== 1n && rcpt2.status !== 1)) {
-        const err = "Buy failed on-chain"
+        const err = "Bid failed on-chain"
         setError(err)
         throw new Error(err)
       }
-      // Refresh balances immediately after success
       await refetchOnchain()
       try { window.dispatchEvent(new Event('auction:tx')) } catch {}
     } catch (e: any) {
-      const msg = e?.shortMessage || e?.message || "Buy failed"
+      const msg = e?.shortMessage || e?.message || "Bid failed"
       setError(msg)
       throw new Error(msg)
     } finally {
       setIsBuying(false)
     }
-  }, [address, pyusd, treasury, auctionAddress, amount, chainId, refetchOnchain])
+  }, [address, usdcAddress, auctionAddress, amount, chainId, publicClient, refetchOnchain])
 
   return {
     amount,
@@ -236,9 +196,80 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     marketToken,
     remaining: remainingState,
     userTokenBalance: userTokenBalanceState,
-    onchainPrice: (onchainPrice as bigint) ?? 0n,
+    onchainPrice: clearingPrice6d, // USDC 6d per token (clearing price)
     lastHash,
-    pyusd,
-    pyusdBalance: pyusdBalanceState,
+    pyusd: usdcAddress,
+    pyusdBalance: usdcBalanceState,
   }
+}
+
+/**
+ * The connected user's bids on one CCA (from BidSubmitted logs), with
+ * exit + claim actions for after the auction ends.
+ */
+export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${string}` }) {
+  const { address } = useAccount()
+  const publicClient = usePublicClient()
+  const [bids, setBids] = useState<{ bidId: bigint; priceQ96: bigint; amount: bigint }[]>([])
+  const [isWorking, setIsWorking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refetch = useCallback(async () => {
+    try {
+      if (!publicClient || !address || !auctionAddress) return
+      const [submitted, claimedLogs] = await Promise.all([
+        publicClient.getLogs({
+          address: auctionAddress,
+          event: cca_abi.find((f) => f.type === 'event' && f.name === 'BidSubmitted') as any,
+          args: { owner: address }, fromBlock: 'earliest',
+        }),
+        publicClient.getLogs({
+          address: auctionAddress,
+          event: cca_abi.find((f) => f.type === 'event' && f.name === 'TokensClaimed') as any,
+          args: { owner: address }, fromBlock: 'earliest',
+        }),
+      ])
+      const claimed = new Set(claimedLogs.map((l: any) => String(l.args.bidId)))
+      setBids(
+        submitted
+          .filter((l: any) => !claimed.has(String(l.args.id)))
+          .map((l: any) => ({ bidId: l.args.id as bigint, priceQ96: l.args.priceQ96 as bigint, amount: l.args.amount as bigint }))
+      )
+    } catch {
+      // silent
+    }
+  }, [publicClient, address, auctionAddress])
+
+  useEffect(() => { void refetch() }, [refetch])
+
+  /** exitBid (refund of unspent budget) then claimTokens. */
+  const exitAndClaim = useCallback(async (bidId: bigint) => {
+    setError(null)
+    setIsWorking(true)
+    try {
+      const anyWindow = window as any
+      if (!anyWindow?.ethereum || !auctionAddress) throw new Error('No wallet')
+      const provider = new ethers.BrowserProvider(anyWindow.ethereum)
+      const signer = await provider.getSigner()
+      const auction = new ethers.Contract(auctionAddress, CCA_WRITE_ABI, signer)
+      try {
+        const tx = await auction.exitBid(bidId)
+        await tx.wait(1)
+      } catch {
+        // already exited (or partially-filled edge case) — try claiming anyway
+      }
+      const tx2 = await auction.claimTokens(bidId)
+      await tx2.wait(1)
+      await refetch()
+      try { window.dispatchEvent(new Event('auction:tx')) } catch {}
+      return true
+    } catch (e: any) {
+      setError(e?.shortMessage || e?.message || 'Claim failed')
+      return false
+    } finally {
+      setIsWorking(false)
+    }
+  }, [auctionAddress, refetch])
+
+  return { bids, refetch, exitAndClaim, isWorking, error }
 }

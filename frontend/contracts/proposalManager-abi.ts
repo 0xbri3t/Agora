@@ -1,10 +1,102 @@
 export const proposalManager_abi = [
   {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_collateral",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_proposalImpl",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_attestor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_ccaFactory",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "ATTESTOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "CCA_FACTORY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "COLLATERAL",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "allProposals",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "function",
     "name": "createProposal",
     "inputs": [
-      { "name": "_title", "type": "string", "internalType": "string" },
-      { "name": "_description", "type": "string", "internalType": "string" },
+      {
+        "name": "_title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "_description",
+        "type": "string",
+        "internalType": "string"
+      },
       {
         "name": "_auctionDuration",
         "type": "uint256",
@@ -15,22 +107,60 @@ export const proposalManager_abi = [
         "type": "uint256",
         "internalType": "uint256"
       },
-      { "name": "_subjectToken", "type": "string", "internalType": "string" },
-      { "name": "_minToOpen", "type": "uint256", "internalType": "uint256" },
-      { "name": "_maxCap", "type": "uint256", "internalType": "uint256" },
-      { "name": "_target", "type": "address", "internalType": "address" },
-      { "name": "_data", "type": "bytes", "internalType": "bytes" },
-      { "name": "_pythAddr", "type": "address", "internalType": "address" },
-      { "name": "_pythId", "type": "bytes32", "internalType": "bytes32" }
+      {
+        "name": "_subjectToken",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "_minToOpen",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "_maxCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "_target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_data",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "_pythAddr",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_pythId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
     ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
     "name": "deleteProposal",
     "inputs": [
-      { "name": "_proposal", "type": "address", "internalType": "address" }
+      {
+        "name": "_proposal",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -39,7 +169,11 @@ export const proposalManager_abi = [
     "type": "function",
     "name": "finalizeProposal",
     "inputs": [
-      { "name": "_proposalId", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "_proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -50,13 +184,25 @@ export const proposalManager_abi = [
     "inputs": [],
     "outputs": [
       {
-        "name": "proposals",
+        "name": "_proposals",
         "type": "tuple[]",
         "internalType": "struct IProposalManager.ProposalInfo[]",
         "components": [
-          { "name": "id", "type": "uint256", "internalType": "uint256" },
-          { "name": "admin", "type": "address", "internalType": "address" },
-          { "name": "title", "type": "string", "internalType": "string" },
+          {
+            "name": "id",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "admin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "title",
+            "type": "string",
+            "internalType": "string"
+          },
           {
             "name": "description",
             "type": "string",
@@ -82,7 +228,11 @@ export const proposalManager_abi = [
             "type": "uint256",
             "internalType": "uint256"
           },
-          { "name": "liveEnd", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "liveEnd",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
           {
             "name": "liveDuration",
             "type": "uint256",
@@ -98,7 +248,11 @@ export const proposalManager_abi = [
             "type": "uint256",
             "internalType": "uint256"
           },
-          { "name": "maxCap", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "maxCap",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
           {
             "name": "yesAuction",
             "type": "address",
@@ -114,14 +268,26 @@ export const proposalManager_abi = [
             "type": "address",
             "internalType": "address"
           },
-          { "name": "noToken", "type": "address", "internalType": "address" },
+          {
+            "name": "noToken",
+            "type": "address",
+            "internalType": "address"
+          },
           {
             "name": "treasury",
             "type": "address",
             "internalType": "address"
           },
-          { "name": "target", "type": "address", "internalType": "address" },
-          { "name": "data", "type": "bytes", "internalType": "bytes" },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
           {
             "name": "proposalAddress",
             "type": "address",
@@ -136,7 +302,11 @@ export const proposalManager_abi = [
     "type": "function",
     "name": "getProposalById",
     "inputs": [
-      { "name": "_proposalId", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "_proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [
       {
@@ -144,9 +314,21 @@ export const proposalManager_abi = [
         "type": "tuple",
         "internalType": "struct IProposalManager.ProposalInfo",
         "components": [
-          { "name": "id", "type": "uint256", "internalType": "uint256" },
-          { "name": "admin", "type": "address", "internalType": "address" },
-          { "name": "title", "type": "string", "internalType": "string" },
+          {
+            "name": "id",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "admin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "title",
+            "type": "string",
+            "internalType": "string"
+          },
           {
             "name": "description",
             "type": "string",
@@ -172,7 +354,11 @@ export const proposalManager_abi = [
             "type": "uint256",
             "internalType": "uint256"
           },
-          { "name": "liveEnd", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "liveEnd",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
           {
             "name": "liveDuration",
             "type": "uint256",
@@ -188,7 +374,11 @@ export const proposalManager_abi = [
             "type": "uint256",
             "internalType": "uint256"
           },
-          { "name": "maxCap", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "maxCap",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
           {
             "name": "yesAuction",
             "type": "address",
@@ -204,14 +394,26 @@ export const proposalManager_abi = [
             "type": "address",
             "internalType": "address"
           },
-          { "name": "noToken", "type": "address", "internalType": "address" },
+          {
+            "name": "noToken",
+            "type": "address",
+            "internalType": "address"
+          },
           {
             "name": "treasury",
             "type": "address",
             "internalType": "address"
           },
-          { "name": "target", "type": "address", "internalType": "address" },
-          { "name": "data", "type": "bytes", "internalType": "bytes" },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
           {
             "name": "proposalAddress",
             "type": "address",
@@ -226,7 +428,11 @@ export const proposalManager_abi = [
     "type": "function",
     "name": "getProposalsByAdmin",
     "inputs": [
-      { "name": "_admin", "type": "address", "internalType": "address" }
+      {
+        "name": "_admin",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
     "outputs": [
       {
@@ -234,9 +440,21 @@ export const proposalManager_abi = [
         "type": "tuple[]",
         "internalType": "struct IProposalManager.ProposalInfo[]",
         "components": [
-          { "name": "id", "type": "uint256", "internalType": "uint256" },
-          { "name": "admin", "type": "address", "internalType": "address" },
-          { "name": "title", "type": "string", "internalType": "string" },
+          {
+            "name": "id",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "admin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "title",
+            "type": "string",
+            "internalType": "string"
+          },
           {
             "name": "description",
             "type": "string",
@@ -262,7 +480,11 @@ export const proposalManager_abi = [
             "type": "uint256",
             "internalType": "uint256"
           },
-          { "name": "liveEnd", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "liveEnd",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
           {
             "name": "liveDuration",
             "type": "uint256",
@@ -278,7 +500,11 @@ export const proposalManager_abi = [
             "type": "uint256",
             "internalType": "uint256"
           },
-          { "name": "maxCap", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "maxCap",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
           {
             "name": "yesAuction",
             "type": "address",
@@ -294,14 +520,26 @@ export const proposalManager_abi = [
             "type": "address",
             "internalType": "address"
           },
-          { "name": "noToken", "type": "address", "internalType": "address" },
+          {
+            "name": "noToken",
+            "type": "address",
+            "internalType": "address"
+          },
           {
             "name": "treasury",
             "type": "address",
             "internalType": "address"
           },
-          { "name": "target", "type": "address", "internalType": "address" },
-          { "name": "data", "type": "bytes", "internalType": "bytes" },
+          {
+            "name": "target",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
           {
             "name": "proposalAddress",
             "type": "address",
@@ -311,5 +549,176 @@ export const proposalManager_abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nextId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposalImpl",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposals",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "newOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProposalCreated",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "admin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "proposal",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OwnableInvalidOwner",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OwnableUnauthorizedAccount",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   }
 ] as const

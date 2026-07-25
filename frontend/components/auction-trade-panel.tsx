@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils"
 import { useRef } from "react"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
-import { dutchAuction_abi } from "@/contracts/dutchAuction-abi"
+import { cca_abi } from "@/contracts/cca-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { treasury_abi } from "@/contracts/treasury-abi"
 
@@ -73,76 +73,50 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
       const provider = new ethers.BrowserProvider(anyWindow.ethereum)
       const signer = await provider.getSigner()
 
-      // Read addresses from Proposal
       const proposal = new ethers.Contract(proposalAddress, proposal_abi as any, signer)
-      const [yesAuctionAddr, noAuctionAddr, yesTokenAddr, noTokenAddr, treasuryAddr] = await Promise.all([
+      const [yesAuctionAddr, noAuctionAddr] = await Promise.all([
         proposal.yesAuction(),
         proposal.noAuction(),
-        proposal.yesToken(),
-        proposal.noToken(),
-        proposal.treasury(),
       ])
+      if (!yesAuctionAddr || !noAuctionAddr) { toast.error("Proposal not ready"); return false }
 
-      if (!yesAuctionAddr || !noAuctionAddr || !yesTokenAddr || !noTokenAddr || !treasuryAddr) {
-        toast.error("Proposal not ready")
-        return false
-      }
-
-      // Preflight: refunds must be enabled
-      const treasury = new ethers.Contract(treasuryAddr as string, treasury_abi as any, signer)
-      const enabled: boolean = await treasury.refundsEnabled().catch(() => false)
-      if (!enabled) {
-        toast.error("Refunds not enabled yet")
-        return false
-      }
-
-      const me = address as string
-      const steps: Array<{ token: string; auction: string; label: string }> = [
-        { token: noTokenAddr as string, auction: noAuctionAddr as string, label: "NO" },
-        { token: yesTokenAddr as string, auction: yesAuctionAddr as string, label: "YES" },
-      ]
-
-      let didAnything = false
-
-      for (const { token, auction, label } of steps) {
-        if (!token || token === ethers.ZeroAddress) continue
-        const erc20 = new ethers.Contract(token, marketToken_abi as any, signer)
-        const bal: bigint = await erc20.balanceOf(me)
-        if (!bal || bal === 0n) continue
-
-        // Ensure allowance to Treasury for token refunds
-        const cur: bigint = await erc20.allowance(me, treasuryAddr)
-        if (cur < bal) {
-          const txA = await erc20.approve(treasuryAddr, bal)
-          await txA.wait(1)
-        }
-
-        const auc = new ethers.Contract(auction, dutchAuction_abi as any, signer)
-        try {
-          const txR = await auc.refundTokens()
-          await txR.wait(1)
-          didAnything = true
-          toast.success(`Refunded t${label}`, { description: `Returned ${(Number(bal) / 1e18).toFixed(6)} t${label}` })
-          // Important: refund transfers full PYUSD balance. Stop after first success to avoid double-payout.
-          break
-        } catch (e: any) {
-          // If it failed, re-check refunds flag to give a clearer message
-          const stillEnabled: boolean = await treasury.refundsEnabled().catch(() => false)
-          if (!stillEnabled) {
-            toast.error("Refunds not enabled yet")
-          } else {
-            const msg = e?.shortMessage || e?.message || "Refund failed"
-            toast.error("Refund failed", { description: msg })
+      // A non-graduated CCA refunds bidders directly: exit every bid we own.
+      const iface = new ethers.Interface([
+        'event BidSubmitted(uint256 indexed id, address indexed owner, uint256 priceQ96, uint128 amount)',
+        'event BidExited(uint256 indexed bidId, address indexed owner, uint256 tokensFilled, uint256 currencyRefunded)',
+        'function exitBid(uint256 bidId)',
+      ])
+      let exited = 0
+      for (const auctionAddr of [yesAuctionAddr as string, noAuctionAddr as string]) {
+        const submitted = await provider.getLogs({
+          address: auctionAddr, fromBlock: 0n,
+          topics: [iface.getEvent('BidSubmitted')!.topicHash, null, ethers.zeroPadValue(address, 32)],
+        })
+        const alreadyExited = await provider.getLogs({
+          address: auctionAddr, fromBlock: 0n,
+          topics: [iface.getEvent('BidExited')!.topicHash, null, ethers.zeroPadValue(address, 32)],
+        })
+        const exitedIds = new Set(alreadyExited.map((l) => String(iface.parseLog(l)!.args.bidId)))
+        const auction = new ethers.Contract(auctionAddr, iface, signer)
+        for (const log of submitted) {
+          const bidId = iface.parseLog(log)!.args.id as bigint
+          if (exitedIds.has(String(bidId))) continue
+          try {
+            const tx = await auction.exitBid(bidId)
+            await tx.wait(1)
+            exited++
+          } catch (e: any) {
+            toast.error("Exit failed", { description: e?.shortMessage || e?.message })
+            return false
           }
-          return false
         }
       }
 
-      if (!didAnything) {
-        toast.error("No tokens to refund")
+      if (exited === 0) {
+        toast.error("No bids to refund")
         return false
       }
-
+      toast.success(`Refunded ${exited} bid${exited > 1 ? 's' : ''}`)
       try { window.dispatchEvent(new Event('auction:tx')) } catch {}
       return true
     } catch (e: any) {
@@ -172,7 +146,7 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
           proposal.yesToken(),
           proposal.noToken(),
           proposal.treasury(),
-          proposal.pyUSD(),
+          proposal.collateral(),
         ])
         if (!yesTokenAddr || !noTokenAddr || !treasuryAddr || !pyusdAddr) return
         const yesToken = new ethers.Contract(yesTokenAddr, marketToken_abi as any, signer)
