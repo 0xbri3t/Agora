@@ -2,9 +2,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { LiveMarketsPanel } from "@/components/landing/live-markets-panel"
 import { TickerTape } from "@/components/landing/ticker-tape"
-import { FutarchyDiagram } from "@/components/landing/futarchy-diagram"
-import { TeeSpec } from "@/components/landing/tee-spec"
 import { PixelAgora } from "@/components/landing/pixel-agora"
+import { DecisionFlow } from "@/components/landing/decision-flow"
 
 const BUILT_ON = ["1inch Aqua", "Ethereum Sepolia", "Pyth", "USDC"]
 
@@ -50,23 +49,12 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-border">
-        <div className="container mx-auto grid grid-cols-1 gap-10 px-6 py-16 md:py-24 lg:grid-cols-[1fr_minmax(0,420px)] lg:items-center lg:gap-16">
-          <FutarchyDiagram />
-          <div className="flex flex-col gap-4">
-            <p className="font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
-              Two conditional markets trade the same decision.
-              <br />
-              The stronger TWAP wins.
-              <br />
-              The contract executes the winner.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-t border-border">
-        <div className="container mx-auto max-w-2xl px-6 py-16 md:py-24">
-          <TeeSpec />
+        <div className="container mx-auto px-6 py-16 md:py-24">
+          <p className="mx-auto mb-12 max-w-2xl text-center font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
+            Two conditional markets trade the same decision.
+            The stronger TWAP wins. The contract executes it.
+          </p>
+          <DecisionFlow className="mx-auto max-w-5xl" />
         </div>
       </section>
 
