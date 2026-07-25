@@ -1,5 +1,6 @@
 import { ethers } from "ethers"
 import { useCallback, useMemo, useState } from "react"
+import { toast } from "sonner"
 import { collateral_abi } from '@/contracts/collateral-abi'
 import { getContractAddress } from "@/contracts/constants"
 
@@ -23,6 +24,7 @@ export function useCreateOrder() {
 
   const collateralAddress = useMemo(() => getContractAddress(chainId, 'COLLATERAL') as `0x${string}` | undefined, [chainId])
   const [error, setError] = useState<string | null>(null)
+  const [isMinting, setIsMinting] = useState(false)
   const [lastHash, setLastHash] = useState<string | null>(null)
   const [collateralBalance, setCollateralBalance] = useState<bigint>(0n)
 
@@ -43,8 +45,9 @@ export function useCreateOrder() {
 
 
   const mintPublic = useCallback(async () => {
-    if (!collateralAddress) return
+    if (!collateralAddress || isMinting) return
 
+    setIsMinting(true)
     try {
       // Works for both extension wallets and Openfort embedded/guest wallets
       const signer = await getEthersSigner(config)
@@ -61,6 +64,7 @@ export function useCreateOrder() {
 
       await refetchOnchain()
       setError(null)
+      toast.success('Minted 10,000 USDC')
     } catch (err) {
       let errorMsg = 'Error minting';
       if (err instanceof Error && err.message) {
@@ -69,13 +73,16 @@ export function useCreateOrder() {
         errorMsg = err;
       }
       setError(errorMsg);
+      toast.error('Mint failed', { description: errorMsg.slice(0, 200) });
       console.error('Error minting:', err);
     } finally {
+      setIsMinting(false)
     }
-  }, [collateralAddress, refetchOnchain, config, address])
+  }, [collateralAddress, isMinting, refetchOnchain, config, address])
 
   return {
     mintPublic,
+    isMinting,
     error,
     lastHash,
     collateralBalance,

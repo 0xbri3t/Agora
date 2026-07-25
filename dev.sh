@@ -141,7 +141,7 @@ cmd_start() {
     info "forking Sepolia at block $(( 16#$fork_block - 5 ))"
   fi
   free_port 8545 anvil
-  start_bg anvil "$ROOT" anvil --chain-id 31337 --port 8545 --block-time "$BLOCK_TIME" \
+  start_bg anvil "$ROOT" anvil --chain-id 31337 --host 0.0.0.0 --port 8545 --block-time "$BLOCK_TIME" \
     --fork-url "$fork_url" "${fork_args[@]}"
   wait_for_rpc
 
