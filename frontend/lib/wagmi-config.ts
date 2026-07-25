@@ -3,10 +3,10 @@ import { sepolia, type Chain } from "wagmi/chains"
 import { getDefaultConfig } from "@openfort/react/wagmi"
 import { anvil } from './custom-chains'
 
-const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID || "00000000000000000000000000000000" // 32 character fallback
-
-// Validate projectId length
-if (projectId.length !== 32) {
+// Without a real project ID the WalletConnect connector just spams 403s
+// ("Origin not found on Allowlist") — omit it and the connector is skipped.
+const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID
+if (projectId && projectId.length !== 32) {
   console.warn('WalletConnect Project ID must be exactly 32 characters long. Please set NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID in your environment variables.')
 }
 
