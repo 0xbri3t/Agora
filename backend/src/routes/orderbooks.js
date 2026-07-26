@@ -381,14 +381,15 @@ router.get('/:proposalId/:side/candles', async (req, res) => {
       const candleEnd = new Date(currentTime + intervalMs);
       const candleData = priceData.filter(data => data.timestamp >= candleStart && data.timestamp < candleEnd);
       if (candleData.length > 0) {
-        const prices = candleData.map(d => parseFloat(d.price));
+        // PriceHistory stores raw on-chain units (price USDC 6d, volume token 18d) -> human
+        const prices = candleData.map(d => parseFloat(d.price) / 1e6);
         candles.push({
           timestamp: candleStart.toISOString(),
           open: prices[0],
           high: Math.max(...prices),
           low: Math.min(...prices),
           close: prices[prices.length - 1],
-          volume: candleData.reduce((sum, d) => sum + parseFloat(d.volume), 0)
+          volume: candleData.reduce((sum, d) => sum + parseFloat(d.volume) / 1e18, 0)
         });
       }
       currentTime += intervalMs;
