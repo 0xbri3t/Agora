@@ -8,6 +8,8 @@ import { AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { ProposalHeader } from "@/components/proposal-header"
 import { AuctionView } from "@/components/auction-view"
+import { PhaseStepper } from "@/components/phase-stepper"
+import { motion, AnimatePresence } from "motion/react"
 import { MarketView } from "@/components/market-view"
 import { AuctionTradePanel } from "@/components/auction-trade-panel"
 import { MarketTradePanel } from "@/components/market-trade-panel"
@@ -265,11 +267,21 @@ export default function ProposalDetailPage({ params }: PageProps) {
       </Dialog>
       */}
 
-      <div className="grid lg:grid-cols-3 gap-6 items-start">
-        <div className="lg:col-span-3">
-          <ProposalHeader proposal={proposal} chainId={chainId} />
-        </div>
+      <div className="space-y-4">
+        <ProposalHeader proposal={proposal} chainId={chainId} />
+        <PhaseStepper state={(proposal as any).state} />
+      </div>
 
+      <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={(proposal as any).state}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.28, ease: "easeOut" }}
+        className="mt-6"
+      >
+      <div className="grid lg:grid-cols-3 gap-6 items-start">
         {isResolvedView ? (
           <div className="lg:col-span-3">
             <AuctionResolvedOnChain proposalAddress={(proposal as any).proposalAddress} />
@@ -342,6 +354,8 @@ export default function ProposalDetailPage({ params }: PageProps) {
           )
         )}
       </div>
+      </motion.div>
+      </AnimatePresence>
     </div>
   )
 }
