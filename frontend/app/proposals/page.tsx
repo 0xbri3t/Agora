@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { getSupportedCollaterals } from "@/lib/collaterals"
+import { useChainId } from "wagmi"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
@@ -74,6 +76,13 @@ export default function ProposalsPage() {
   const { isConnected, address } = useAccount()
   // const router = useRouter()
   const { mintPublic, isMinting, collateralBalance, error: mintError, refetchOnchain } = useCreateOrder()
+  const chainId = useChainId()
+  const collaterals = getSupportedCollaterals(chainId)
+  const SUBJECT_LOGOS: Record<string, string> = { UNI: "/logos/uniswap.svg", BTC: "/logos/btc.svg", ETH: "/logos/eth.svg", "1INCH": "/logos/1inch.svg" }
+  const subjectFor = (p: any) => {
+    const meta = collaterals.find(c => c.pythID.toUpperCase() === (p.subjectToken || "").toUpperCase())
+    return meta ? { symbol: meta.symbol, logo: SUBJECT_LOGOS[meta.symbol] } : null
+  }
   const { deleteProposal, pending, error: deleteError } = useDeleteProposal()
   const { toast } = useToast()
 
@@ -221,7 +230,7 @@ export default function ProposalsPage() {
           <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-6 border-b border-border px-4 py-2 text-xs text-muted-foreground">
             <span>Title</span>
             <span className="w-20 text-right">Status</span>
-            <span className="w-24 text-right">Collateral</span>
+            <span className="w-24 text-right">Subject</span>
             <span className="w-24 text-right">Created</span>
             <span className="w-24 text-right">Ends</span>
           </div>
@@ -261,7 +270,7 @@ export default function ProposalsPage() {
           <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-6 border-b border-border px-4 py-2 text-xs text-muted-foreground">
             <SortHeader label="Title" sortId="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
             <SortHeader label="Status" sortId="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-20 justify-end" />
-            <span className="w-24 text-right">Collateral</span>
+            <span className="w-24 text-right">Subject</span>
             <SortHeader label="Created" sortId="created" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24 justify-end" />
             <SortHeader label="Ends" sortId="ends" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24 justify-end" />
           </div>
@@ -278,8 +287,16 @@ export default function ProposalsPage() {
                   {statusLabels[stateKey]}
                 </span>
                 <span className="flex items-center gap-1.5 md:w-24 md:justify-end font-mono text-xs text-muted-foreground">
-                  <img src="/logos/usdc.svg" alt="" className="h-4 w-4" />
-                  USDC
+                  {(() => {
+                    const subj = subjectFor(proposal)
+                    if (!subj) return <span>—</span>
+                    return (
+                      <>
+                        {subj.logo && <img src={subj.logo} alt="" className="h-4 w-4" />}
+                        {subj.symbol}
+                      </>
+                    )
+                  })()}
                 </span>
                 <span className="md:w-24 md:text-right font-mono text-xs tabular-nums text-muted-foreground">
                   {new Date((proposal.auctionStartTime || 0) * 1000).toLocaleDateString(undefined, {
