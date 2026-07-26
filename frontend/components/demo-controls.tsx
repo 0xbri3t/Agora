@@ -1,10 +1,9 @@
 "use client"
 
-// Fork-only demo driver, visible to the proposal admin: two buttons that make
-// five funded local wallets act out the auction and the market with staggered,
-// believable activity — so the whole lifecycle can be shown live in a minute.
+// Fork-only demo driver, visible to the proposal admin: two compact buttons
+// that make five funded local wallets act out the auction and the market with
+// staggered, believable activity. Lives in the right column — one slim card.
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
@@ -52,34 +51,27 @@ export function DemoControls({ proposalId, admin }: { proposalId: string; admin?
 
   const auctionRunning = status?.auction?.running ?? false
   const marketRunning = status?.market?.running ?? false
-  const lastLines = [...(status?.auction?.log ?? []), ...(status?.market?.log ?? [])].slice(-4)
+  const anyRunning = auctionRunning || marketRunning
+  const lastLine = [...(status?.auction?.log ?? []), ...(status?.market?.log ?? [])].slice(-1)[0]
 
   return (
-    <Card className="border-dashed">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">Demo director</CardTitle>
-        <CardDescription>
-          Five funded local wallets act out the crowd — staggered bids in the
-          auction, then ship/fill trading on both books. Admin-only, fork-only.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => start("auction")} disabled={auctionRunning}>
-            {auctionRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            {auctionRunning ? "Auction crowd running…" : "Simulate auction crowd"}
+    <div className="rounded-md border border-dashed px-3 py-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Demo director</span>
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => start("auction")} disabled={auctionRunning}>
+            {auctionRunning ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
+            Auction
           </Button>
-          <Button size="sm" variant="outline" onClick={() => start("market")} disabled={marketRunning}>
-            {marketRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-            {marketRunning ? "Market trading running…" : "Simulate market trading"}
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => start("market")} disabled={marketRunning}>
+            {marketRunning ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
+            Market
           </Button>
         </div>
-        {lastLines.length > 0 && (
-          <div className="rounded-md bg-muted/40 p-2 font-mono text-xs text-muted-foreground space-y-0.5">
-            {lastLines.map((l, i) => <div key={i}>{l}</div>)}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+      {anyRunning && lastLine && (
+        <p className="truncate font-mono text-[11px] text-muted-foreground" title={lastLine}>{lastLine}</p>
+      )}
+    </div>
   )
 }
