@@ -145,11 +145,9 @@ export default function NewProposalPage() {
     if (!/^\d+$/.test(text)) e.preventDefault()
   }, [])
 
-  // Local tx state (ethers based)
-  const [txHash, setTxHash] = useState<string | null>(null)
+  // Local tx state (ethers based) — surfaced through the submit button label
   const [isPending, setIsPending] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
-  const [isConfirmed, setIsConfirmed] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const submittingRef = React.useRef(false)
 
@@ -237,14 +235,12 @@ export default function NewProposalPage() {
         `0x${formData.pythId}`
       )
 
-      setTxHash(tx.hash)
       setIsPending(false)
       setIsConfirming(true)
 
       const receipt = await tx.wait()
       const status = (receipt as any)?.status
       if (status === 1 || status === "1" || status === true) {
-        setIsConfirmed(true)
         toast({
           title: "Proposal Created",
           description: "Your proposal will use the Pyth price at auction start.",
@@ -502,7 +498,7 @@ export default function NewProposalPage() {
                       : "flex-1 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 h-10 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 hover:ring-green-500"
                 }
               >
-                {isPending ? "Creating..." : (isConfirming ? "Confirming..." : "Create Proposal")}
+                {isPending ? "Confirm in wallet…" : (isConfirming ? "Creating proposal…" : "Create Proposal")}
               </StatefulButton>
               <Button
                 type="button"
@@ -515,11 +511,6 @@ export default function NewProposalPage() {
               </Button>
             </div>
 
-            {/* Transaction feedback */}
-            {txHash && <div>Transaction Hash: {txHash}</div>}
-            {isConfirming && <div>Waiting for confirmation...</div>}
-            {isConfirmed && <div>Transaction confirmed.</div>}
-            {/* {error && <div>Error: {error.message}</div>} */}
           </form>
         </CardContent>
       </Card>
