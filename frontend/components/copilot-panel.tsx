@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useCopilotAsk, useCopilotInsights } from "@/hooks/use-copilot"
 import { LivingStoa } from "@/components/copilot/living-stoa"
 import { SignalFeed } from "@/components/copilot/signal-feed"
@@ -41,6 +42,14 @@ export function CopilotPanel({ proposalId }: { proposalId: string }) {
       <CardContent className="space-y-4">
         {error && (
           <p className="text-sm text-muted-foreground">Copilot unavailable: {error}</p>
+        )}
+
+        {!insights && !error && isLoading && (
+          <div className="space-y-3">
+            <Skeleton className="h-36 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
         )}
 
         {insights && (

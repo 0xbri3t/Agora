@@ -9,6 +9,8 @@ import Link from "next/link"
 import { ProposalHeader } from "@/components/proposal-header"
 import { DemoControls } from "@/components/demo-controls"
 import { AuctionView } from "@/components/auction-view"
+import { PhaseStepper } from "@/components/phase-stepper"
+import { motion, AnimatePresence } from "motion/react"
 import { MarketView } from "@/components/market-view"
 import { AuctionTradePanel } from "@/components/auction-trade-panel"
 import { MarketTradePanel } from "@/components/market-trade-panel"
@@ -266,15 +268,21 @@ export default function ProposalDetailPage({ params }: PageProps) {
       </Dialog>
       */}
 
+      <div className="space-y-4">
+        <ProposalHeader proposal={proposal} chainId={chainId} />
+        <PhaseStepper state={(proposal as any).state} />
+      </div>
+
+      <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={(proposal as any).state}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.28, ease: "easeOut" }}
+        className="mt-6"
+      >
       <div className="grid lg:grid-cols-3 gap-6 items-start">
-        <div className="lg:col-span-3">
-          <ProposalHeader proposal={proposal} chainId={chainId} />
-        </div>
-
-        <div className="lg:col-span-3">
-          <DemoControls proposalId={id} admin={(proposal as any).admin} />
-        </div>
-
         {isResolvedView ? (
           <div className="lg:col-span-3">
             <AuctionResolvedOnChain proposalAddress={(proposal as any).proposalAddress} />
@@ -310,7 +318,8 @@ export default function ProposalDetailPage({ params }: PageProps) {
                 userBalance={(userBalance as any)}
               />
             </div>
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-1 space-y-4">
+              <DemoControls proposalId={id} admin={(proposal as any).admin} />
               <CopilotPanel proposalId={id} />
             </div>
           </>
@@ -330,6 +339,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
                 />
               </div>
               <div className="lg:col-span-1 space-y-4">
+                <DemoControls proposalId={id} admin={(proposal as any).admin} />
                 <div className="hidden md:block">
                   <MarketPriceHeader proposalId={String(proposal.id)} />
                 </div>
@@ -347,6 +357,8 @@ export default function ProposalDetailPage({ params }: PageProps) {
           )
         )}
       </div>
+      </motion.div>
+      </AnimatePresence>
     </div>
   )
 }
