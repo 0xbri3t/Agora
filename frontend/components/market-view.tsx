@@ -226,8 +226,9 @@ export function MarketView({
             fetch(`${API_BASE}/orderbooks/${proposalId}/no/top`, { signal: controller.signal }).then(r => r.ok ? r.json().catch(() => null) : null),
           ])
           const calcMid = (json: any): number | undefined => {
-            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) : undefined
-            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) : undefined
+            // /top serves raw USDC 6d prices -> human
+            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) / 1e6 : undefined
+            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) / 1e6 : undefined
             if (bid != null && ask != null) return (bid + ask) / 2
             return bid ?? ask ?? undefined
           }
@@ -279,8 +280,9 @@ export function MarketView({
             fetch(`${API_BASE}/orderbooks/${proposalId}/no/top`, { signal: controller.signal }).then(r => r.ok ? r.json().catch(() => null) : null),
           ])
           const calcMid = (json: any): number | undefined => {
-            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) : undefined
-            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) : undefined
+            // /top serves raw USDC 6d prices -> human
+            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) / 1e6 : undefined
+            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) / 1e6 : undefined
             if (bid != null && ask != null) return (bid + ask) / 2
             return bid ?? ask ?? undefined
           }

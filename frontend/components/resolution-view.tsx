@@ -55,15 +55,16 @@ export function AuctionResolved({
   const userLosingTokens = winningMarket === "YES" ? userNoTokens : userYesTokens
   const winColor = winningMarket === "YES" ? UP : DOWN
 
-  // Butterfly payoff centered on the winning TWAP. Wing width follows the
-  // decision gap, floored so the shape never degenerates.
-  const wing = Math.max(priceDiff, winningPrice * 0.15, 0.01)
+  // Butterfly payoff centered on the winning TWAP. The payout window is
+  // ±10% of the winning forecast (protocol width parameter), so the axis
+  // stays in the price neighborhood that settlement actually pays.
+  const wing = Math.max(winningPrice * 0.1, 0.01)
   const butterflyData = [
-    { price: winningPrice - wing * 1.8, payoff: 0 },
+    { price: winningPrice - wing * 1.4, payoff: 0 },
     { price: winningPrice - wing, payoff: 0 },
     { price: winningPrice, payoff: 1 },
     { price: winningPrice + wing, payoff: 0 },
-    { price: winningPrice + wing * 1.8, payoff: 0 },
+    { price: winningPrice + wing * 1.4, payoff: 0 },
   ]
 
   return (
@@ -72,9 +73,6 @@ export function AuctionResolved({
       <Card>
         <CardContent className="flex flex-col gap-6 py-6 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1.5">
-            <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
-              Resolved on-chain
-            </p>
             <h2 className="font-display text-4xl text-foreground">
               <span style={{ color: winColor }}>{winningMarket}</span> wins
             </h2>
@@ -116,8 +114,9 @@ export function AuctionResolved({
           <CardHeader>
             <CardTitle>Butterfly settlement</CardTitle>
             <CardDescription>
-              Winner tokens settle as butterfly options — the payout peaks when the
-              asset&apos;s real price lands on the winning forecast of ${fmt(winningPrice)}.
+              Winner tokens settle as butterfly options. The x-axis is the asset&apos;s
+              possible spot price at expiry: payout peaks if it lands exactly on the
+              winning forecast of ${fmt(winningPrice)} and fades to zero ±10% away.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -128,7 +127,7 @@ export function AuctionResolved({
             ) : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={butterflyData} margin={{ top: 10, right: 16, bottom: 4, left: 0 }}>
+                <LineChart data={butterflyData} margin={{ top: 24, right: 16, bottom: 4, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={INK} opacity={0.15} />
                   <XAxis
                     dataKey="price"
@@ -162,7 +161,7 @@ export function AuctionResolved({
                     x={winningPrice}
                     stroke={winColor}
                     strokeDasharray="4 4"
-                    label={{ value: "winning TWAP", position: "top", fill: INK, fontSize: 10, opacity: 0.7 }}
+                    label={{ value: `winning TWAP $${fmt(winningPrice)}`, position: "insideTopLeft", fill: INK, fontSize: 10, opacity: 0.8, dy: -18 }}
                   />
                   <Line
                     type="linear"
@@ -177,7 +176,7 @@ export function AuctionResolved({
             </div>
             )}
             <p className="mt-3 font-mono text-xs text-muted-foreground">
-              closer forecast → larger payout · settles against the reference price at expiry
+              payout window ±10% around the forecast · settles against the reference price at expiry
             </p>
           </CardContent>
         </Card>
