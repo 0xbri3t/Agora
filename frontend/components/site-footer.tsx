@@ -3,20 +3,11 @@
 import Link from "next/link"
 import { Github, Linkedin } from "lucide-react"
 import { site, type Author } from "@/lib/site"
-import deployedAddresses from "@/contracts/deployed-addresses.json"
-
-const SEPOLIA_CHAIN_ID = "11155111"
-const proposalManagerAddress =
-  (deployedAddresses as Record<string, Record<string, string>>)[SEPOLIA_CHAIN_ID]?.PROPOSAL_MANAGER
-
-function truncateAddress(address: string): string {
-  return `${address.slice(0, 6)}…${address.slice(-4)}`
-}
 
 export function SiteFooter() {
   return (
     <footer className="border-t border-border bg-transparent">
-      <div className="container mx-auto px-4 py-8 grid gap-8 md:grid-cols-3">
+      <div className="container mx-auto px-4 py-8 grid gap-8 md:grid-cols-3 text-center">
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-muted-foreground">Agora</h3>
           <p className="text-foreground">Markets decide.</p>
@@ -28,7 +19,7 @@ export function SiteFooter() {
             href={site.docs}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-foreground hover:text-primary transition-colors"
+            className="block text-foreground hover:text-primary transition-colors"
           >
             View docs
           </Link>
@@ -38,9 +29,9 @@ export function SiteFooter() {
           <h3 className="text-sm font-medium text-muted-foreground">Developed by</h3>
           <ul className="space-y-2">
             {site.authors.map((author: Author) => (
-              <li key={author.name} className="flex items-center gap-2">
+              <li key={author.name} className="flex items-center justify-center gap-2">
                 <span className="text-foreground">{author.name}</span>
-                <span className="flex items-center gap-2 ml-2">
+                <span className="flex items-center gap-2">
                   {author.github && (
                     <Link
                       href={author.github}
@@ -71,21 +62,8 @@ export function SiteFooter() {
           </ul>
         </div>
       </div>
-      <div className="container mx-auto px-4 pb-8 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+      <div className="container mx-auto px-4 pb-8 flex items-center justify-center border-t border-border pt-4">
         <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} Agora</span>
-        {proposalManagerAddress && (
-          <span className="font-mono text-xs text-muted-foreground">
-            Ethereum Sepolia ·{" "}
-            <Link
-              href={`https://sepolia.etherscan.io/address/${proposalManagerAddress}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-foreground transition-colors"
-            >
-              {truncateAddress(proposalManagerAddress)}
-            </Link>
-          </span>
-        )}
       </div>
     </footer>
   )
