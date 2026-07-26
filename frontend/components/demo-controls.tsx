@@ -73,7 +73,7 @@ export function DemoControls({ proposalId, admin }: { proposalId: string; admin?
           </Button>
         </div>
       </div>
-      {anyRunning && lastLine && (
+      {lastLine && (
         <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground" title={clip(lastLine, 400)}>
           {clip(lastLine)}
         </p>
