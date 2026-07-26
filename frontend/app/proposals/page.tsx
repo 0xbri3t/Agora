@@ -4,12 +4,12 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
-import { Plus, Loader2, AlertCircle } from "lucide-react"
+import { Plus, Loader2, AlertCircle, ChevronUp, ChevronDown } from "lucide-react"
 // import { useProposalsByAdmin } from "@/hooks/use-proposals-by-admin"
 import { useGetAllProposals } from "@/hooks/use-get-all-proposals"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAccount } from "wagmi"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 // Remove guard modal imports
 // import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ConnectWalletButton } from "@/components/wallet-button"
@@ -34,6 +34,40 @@ const statusLabels = {
 } as const
 
 type StatusKey = keyof typeof statusStyles
+
+// Lifecycle order for the Status column sort
+const statusRank: Record<StatusKey, number> = { Auction: 0, Live: 1, Resolved: 2, Cancelled: 3 }
+
+type SortKey = "title" | "status" | "created" | "ends"
+type SortDir = "asc" | "desc"
+
+function SortHeader({
+  label,
+  sortId,
+  activeKey,
+  dir,
+  onSort,
+  className = "",
+}: {
+  label: string
+  sortId: SortKey
+  activeKey: SortKey
+  dir: SortDir
+  onSort: (key: SortKey) => void
+  className?: string
+}) {
+  const active = activeKey === sortId
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortId)}
+      className={`flex items-center gap-1 transition-colors hover:text-foreground ${active ? "text-foreground" : ""} ${className}`}
+    >
+      {label}
+      {active && (dir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+    </button>
+  )
+}
 
 export default function ProposalsPage() {
   const { proposals, isLoading, error, refetch } = useGetAllProposals()
@@ -111,14 +145,37 @@ export default function ProposalsPage() {
     }
   }, [list])
 
-  // Helper function to format address
-  const formatAddress = (addr: string) => {
-    if (!addr) return ""
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+  // Sorting — click a column header to sort, click again to flip direction.
+  // Default: newest created first.
+  const [sortKey, setSortKey] = useState<SortKey>("created")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
+
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(key)
+      setSortDir("asc")
+    }
   }
 
-
-
+  const sortedList = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1
+    return [...filteredList].sort((a: any, b: any) => {
+      switch (sortKey) {
+        case "title":
+          return dir * String(a.title ?? "").localeCompare(String(b.title ?? ""))
+        case "status":
+          return dir * ((statusRank[(a.state ?? "Auction") as StatusKey] ?? 0) - (statusRank[(b.state ?? "Auction") as StatusKey] ?? 0))
+        case "created":
+          return dir * ((a.auctionStartTime ?? 0) - (b.auctionStartTime ?? 0))
+        case "ends":
+          return dir * (((a.liveEnd || a.auctionEndTime) ?? 0) - ((b.liveEnd || b.auctionEndTime) ?? 0))
+        default:
+          return 0
+      }
+    })
+  }, [filteredList, sortKey, sortDir])
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -160,21 +217,25 @@ export default function ProposalsPage() {
       )}
 
       {loading ? (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i} className="space-y-4 p-6">
-              <div className="flex items-center justify-between">
-                <Skeleton className="h-5 w-16" />
-                <Skeleton className="h-5 w-20" />
-              </div>
-              <Skeleton className="h-6 w-4/5" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-2/3" />
-              <div className="flex items-center justify-between pt-2">
-                <Skeleton className="h-8 w-24" />
-                <Skeleton className="h-8 w-24" />
-              </div>
-            </Card>
+        <div className="flex flex-col border border-border rounded-[4px]">
+          <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-6 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+            <span>Title</span>
+            <span className="w-20 text-right">Status</span>
+            <span className="w-24 text-right">Collateral</span>
+            <span className="w-24 text-right">Created</span>
+            <span className="w-24 text-right">Ends</span>
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto_auto] items-center gap-1 md:gap-6 border-b border-border px-4 py-3 last:border-b-0"
+            >
+              <Skeleton className="h-5 w-3/5 max-w-64" />
+              <Skeleton className="h-4 w-20 md:justify-self-end" />
+              <Skeleton className="h-4 w-24 md:justify-self-end" />
+              <Skeleton className="h-4 w-24 md:justify-self-end" />
+              <Skeleton className="h-4 w-24 md:justify-self-end" />
+            </div>
           ))}
         </div>
   ) : filteredList.length === 0 ? (
@@ -196,28 +257,29 @@ export default function ProposalsPage() {
         </Card>
       ) : (
         <div className="flex flex-col border border-border rounded-[4px]">
-          {/* Removed wallet guard to allow viewing proposals without a connected wallet */}
-          {/* Header row (md+) — labels for the shared grid template */}
-          <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto] items-center gap-6 border-b border-border px-4 py-2 text-xs text-muted-foreground">
-            <span>Title</span>
-            <span className="w-20 text-right">Status</span>
-            <span className="w-28 text-right">Admin</span>
-            <span className="w-24 text-right">Ends</span>
+          {/* Header row (md+) — click a label to sort, click again to flip */}
+          <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-6 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+            <SortHeader label="Title" sortId="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Status" sortId="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-20 justify-end" />
+            <span className="w-24 text-right">Collateral</span>
+            <SortHeader label="Created" sortId="created" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24 justify-end" />
+            <SortHeader label="Ends" sortId="ends" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24 justify-end" />
           </div>
-          {filteredList.map((proposal: any) => {
+          {sortedList.map((proposal: any) => {
             const stateKey = (proposal.state ?? 'Auction') as StatusKey
             return (
               <Link
                 key={proposal.id}
                 href={`/proposals/${proposal.id}`}
-                className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] items-center gap-1 md:gap-6 border-b border-border px-4 py-3 last:border-b-0 transition-colors hover:bg-card"
+                className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto_auto] items-center gap-1 md:gap-6 border-b border-border px-4 py-3 last:border-b-0 transition-colors hover:bg-card"
               >
                 <span className="min-w-0 truncate text-foreground">{proposal.title}</span>
                 <span className={`md:w-20 md:text-right text-sm font-medium ${statusStyles[stateKey]}`}>
                   {statusLabels[stateKey]}
                 </span>
-                <span className="md:w-28 md:text-right font-mono text-xs tabular-nums text-muted-foreground">
-                  {formatAddress(proposal.admin)}
+                <span className="flex items-center gap-1.5 md:w-24 md:justify-end font-mono text-xs text-muted-foreground">
+                  <img src="/logos/usdc.svg" alt="" className="h-4 w-4" />
+                  USDC
                 </span>
                 <span className="md:w-24 md:text-right font-mono text-xs tabular-nums text-muted-foreground">
                   {new Date((proposal.auctionStartTime || 0) * 1000).toLocaleDateString(undefined, {
@@ -225,31 +287,12 @@ export default function ProposalsPage() {
                     day: "numeric",
                   })}
                 </span>
-
-                {/* {isConnected && address && proposal?.admin && String(address).toLowerCase() === String(proposal.admin).toLowerCase() ? (
-                  <div className="md:col-span-4 flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-data-down hover:text-data-down hover:bg-data-down/10"
-                      disabled={pending}
-                      onClick={async (e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        try {
-                          const res = await deleteProposal({ proposalAddress: proposal.address })
-                          if ((res as any)?.error) throw new Error((res as any).error)
-                          toast({ title: "Proposal deleted", description: `Tx hash: ${(res as any).txHash ?? ''}` })
-                          try { await refetch?.() } catch {}
-                        } catch (err: any) {
-                          toast({ title: "Delete failed", description: err?.message || String(err), variant: "destructive" })
-                        }
-                      }}
-                    >
-                      Delete proposal
-                    </Button>
-                  </div>
-                ) : null} */}
+                <span className="md:w-24 md:text-right font-mono text-xs tabular-nums text-muted-foreground">
+                  {new Date(((proposal.liveEnd || proposal.auctionEndTime) || 0) * 1000).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
               </Link>
             )
           })}
