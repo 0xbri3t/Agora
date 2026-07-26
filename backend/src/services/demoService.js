@@ -437,6 +437,12 @@ async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
     const noBase = await clr(noAuction);
     log(run, `base forecasts — YES $${yesBase.toFixed(2)}, NO $${noBase.toFixed(2)}`);
 
+    // Price drift helpers — bias='no' mirrors every drift so the market
+    // rejects the proposal instead of backing it.
+    const mirror = (v) => Math.round((2 - v) * 100) / 100;
+    const px = (side, value) => (bias === 'no' ? mirror(value) : value);
+    if (bias === 'no') log(run, 'bias: the crowd turns against this one — NO climbs');
+
     // Resting BIDS for the order book (display seed). The Aqua lot protocol is
     // maker-sells-only, so buy-side depth cannot rest on-chain — seed believable
     // bid rows (some partially filled) straight into the book store so the demo
@@ -479,12 +485,8 @@ async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
 
     // The script: maker ships a lot, a different taker fills it. With the
     // default bias the YES side drifts up (conviction building) and NO drifts
-    // down — the futarchy gap opens on the charts in real time. bias='no'
-    // mirrors every drift so the market rejects the proposal instead. qty in
-    // whole tokens, price as multiple of base.
-    const mirror = (px) => Math.round((2 - px) * 100) / 100;
-    const px = (side, value) => (bias === 'no' ? mirror(value) : value);
-    if (bias === 'no') log(run, 'bias: the crowd turns against this one — NO climbs');
+    // down — the futarchy gap opens on the charts in real time. qty in whole
+    // tokens, price as multiple of base.
     const script = [
       { maker: 4, taker: 1, side: 'YES', qty: 2.0, px: 1.00, wait: 0 },
       { maker: 2, taker: 3, side: 'NO',  qty: 1.5, px: 1.00, wait: 3 },
