@@ -34,7 +34,8 @@ router.post('/:id/market', forkOnly, async (req, res) => {
   try {
     const doc = await findProposal(req.params.id);
     if (!doc?.proposalAddress) return res.status(404).json({ error: 'proposal not found' });
-    runMarketDemo(doc.proposalAddress, req.params.id).catch(() => {});
+    const bias = req.query.bias === 'no' ? 'no' : 'yes';
+    runMarketDemo(doc.proposalAddress, req.params.id, bias).catch(() => {});
     res.json({ started: true });
   } catch (e) {
     res.status(400).json({ error: e.message });

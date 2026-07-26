@@ -203,7 +203,18 @@ async function runAuctionDemo(proposalAddress, proposalId) {
     if (Number(state) !== 0) throw new Error(`proposal not in auction (state=${state})`);
 
     log(run, `5 demo wallets joining the auction on ${proposalAddress.slice(0, 10)}…`);
-    await ensureUsdc(run, wallets, usdcAddr, 50_000n * 10n ** 6n);
+
+    // The script's USDC budgets are calibrated against UNI's ~$0.36 floor.
+    // Floors scale with the subject's Pyth price (ETH ≈ $188, BTC ≈ $6k) and
+    // so does the graduation minimum — scale every budget by the same factor
+    // or the auction can never reach its quorum.
+    const roYesEarly = new ethers.Contract(yesAuction, CCA_ABI, provider);
+    const floorQ96 = await roYesEarly.floorPrice();
+    const floor6d = Number((floorQ96 * 10n ** 18n) / Q96) / 1e6;
+    const scale = Math.max(1, floor6d / 0.36);
+    if (scale > 1.5) log(run, `subject floor $${floor6d.toFixed(2)} — scaling bid budgets x${scale.toFixed(0)}`);
+
+    await ensureUsdc(run, wallets, BigInt(Math.ceil(500 * scale)) * 10n ** 6n);
 
     // One-time approvals: USDC -> Permit2, Permit2 -> each auction
     for (const w of wallets) {
@@ -268,7 +279,7 @@ async function runAuctionDemo(proposalAddress, proposalId) {
       const auction = new ethers.Contract(auctionAddr, CCA_ABI, wallets[step.w]);
       const ro = new ethers.Contract(auctionAddr, CCA_ABI, provider);
 
-      const budget = BigInt(step.usdc) * 10n ** 6n;
+      const budget = BigInt(Math.round(step.usdc * scale)) * 10n ** 6n;
       const addr = await wallets[step.w].getAddress();
 
       // BidMustBeAboveClearingPrice trap: the clearingPrice() VIEW lags at the
@@ -315,7 +326,7 @@ async function runAuctionDemo(proposalAddress, proposalId) {
           await waitTx(auction.submitBid(maxQ96, budget, addr, '0x', feeJitter()), wallets[step.w]);
           const px = Number((clearing * 10n ** 18n) / Q96) / 1e6;
           const capNote = step.floorMult ? `${step.floorMult}x floor` : attempt <= 1 ? `${step.mult}x` : `escalated ${attempt === 2 ? '4' : '6'}x floor`;
-          log(run, `${addr.slice(0, 8)} bid ${step.usdc} USDC on ${step.side} (max ${capNote}, clearing was $${px.toFixed(2)})`);
+          log(run, `${addr.slice(0, 8)} bid ${Math.round(step.usdc * scale)} USDC on ${step.side} (max ${capNote}, clearing was $${px.toFixed(2)})`);
           placed = true;
           placedCount++;
         } catch (e) {
@@ -370,7 +381,7 @@ async function claimAuctionTokens(run, provider, wallets, auctionAddr, label) {
   }
 }
 
-async function runMarketDemo(proposalAddress, proposalId) {
+async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
   const key = runKey(proposalId, 'market');
   if (runs[key]?.running) throw new Error('market demo already running');
   const run = (runs[key] = { running: true, startedAt: Date.now(), log: [] });
@@ -434,10 +445,10 @@ async function runMarketDemo(proposalAddress, proposalId) {
       const sideKey = side === 'YES' ? 'approve' : 'reject';
       await Order.deleteMany({ proposalId: String(proposalId), side: sideKey, orderType: 'buy', txHash: 'demo-seed' });
       const rows = [
-        { mult: 0.97, qty: 2.4, fillPct: 0.55, who: 1 },
-        { mult: 0.94, qty: 1.6, fillPct: 0, who: 3 },
-        { mult: 0.9, qty: 3.2, fillPct: 0.3, who: 0 },
-        { mult: 0.86, qty: 1.2, fillPct: 0, who: 2 },
+        { mult: 0.95, qty: 2.4, fillPct: 0.55, who: 1 },
+        { mult: 0.9, qty: 1.6, fillPct: 0, who: 3 },
+        { mult: 0.85, qty: 3.2, fillPct: 0.3, who: 0 },
+        { mult: 0.79, qty: 1.2, fillPct: 0, who: 2 },
       ];
       for (const r of rows) {
         const amount = ethers.parseUnits(r.qty.toString(), 18);
@@ -457,13 +468,23 @@ async function runMarketDemo(proposalAddress, proposalId) {
       }
       await updateOrderBook(String(proposalId), sideKey).catch(() => {});
     };
-    await seedBids('YES', yesBase);
-    await seedBids('NO', noBase);
+    // Anchor the seeded bids (and the resting asks below) to where each side
+    // will END after the scripted drift, so the final book reads coherent:
+    // bids under the last trade, asks above it, for either bias.
+    const yesFinal = yesBase * px('YES', 1.3);
+    const noFinal = noBase * px('NO', 0.85);
+    await seedBids('YES', yesFinal);
+    await seedBids('NO', noFinal);
     log(run, 'bid side seeded on both books');
 
-    // The script: maker ships a lot, a different taker fills it. YES drifts up
-    // (conviction building), NO drifts down — the futarchy gap opens on the
-    // charts in real time. qty in whole tokens, price as multiple of base.
+    // The script: maker ships a lot, a different taker fills it. With the
+    // default bias the YES side drifts up (conviction building) and NO drifts
+    // down — the futarchy gap opens on the charts in real time. bias='no'
+    // mirrors every drift so the market rejects the proposal instead. qty in
+    // whole tokens, price as multiple of base.
+    const mirror = (px) => Math.round((2 - px) * 100) / 100;
+    const px = (side, value) => (bias === 'no' ? mirror(value) : value);
+    if (bias === 'no') log(run, 'bias: the crowd turns against this one — NO climbs');
     const script = [
       { maker: 4, taker: 1, side: 'YES', qty: 2.0, px: 1.00, wait: 0 },
       { maker: 2, taker: 3, side: 'NO',  qty: 1.5, px: 1.00, wait: 3 },
@@ -484,7 +505,7 @@ async function runMarketDemo(proposalAddress, proposalId) {
       await sleep(step.wait * 1000);
       const outcomeToken = step.side === 'YES' ? yesToken : noToken;
       const base = step.side === 'YES' ? yesBase : noBase;
-      const price = base * step.px;
+      const price = base * px(step.side, step.px);
       const lotToken = ethers.parseUnits(step.qty.toString(), 18);
       const lotUsdc = (lotToken * ethers.parseUnits(price.toFixed(6), 6)) / 10n ** 18n;
       const makerW = wallets[step.maker];
@@ -516,15 +537,14 @@ async function runMarketDemo(proposalAddress, proposalId) {
     // Resting ASK ladder: real Aqua lots shipped above the last trade and left
     // unfilled, so the book shows live sell-side depth anyone could take.
     const ladder = [
-      { maker: 4, side: 'YES', qty: 1.4, px: 1.36 },
-      { maker: 4, side: 'YES', qty: 2.1, px: 1.44 },
-      { maker: 2, side: 'NO', qty: 1.2, px: 0.92 },
-      { maker: 2, side: 'NO', qty: 2.0, px: 0.99 },
+      { maker: 4, side: 'YES', qty: 1.4, lad: 1.05 },
+      { maker: 4, side: 'YES', qty: 2.1, lad: 1.12 },
+      { maker: 2, side: 'NO', qty: 1.2, lad: 1.05 },
+      { maker: 2, side: 'NO', qty: 2.0, lad: 1.12 },
     ];
     for (const step of ladder) {
       const outcomeToken = step.side === 'YES' ? yesToken : noToken;
-      const base = step.side === 'YES' ? yesBase : noBase;
-      const price = base * step.px;
+      const price = (step.side === 'YES' ? yesFinal : noFinal) * step.lad;
       const lotToken = ethers.parseUnits(step.qty.toString(), 18);
       const lotUsdc = (lotToken * ethers.parseUnits(price.toFixed(6), 6)) / 10n ** 18n;
       const makerW = wallets[step.maker];
@@ -569,6 +589,17 @@ async function skipPhase(proposalAddress) {
   }
 
   if (state === 1) {
+    // Push the freshest TWAPs BEFORE resolving: the periodic pusher fires once
+    // a minute, and resolving ahead of it settles on stale/zero TWAPs — an
+    // empty tie where both sides lose and the resolution view shows nothing.
+    try {
+      const { pushOnce } = require('./twapPusherService');
+      const attestor = new ethers.NonceManager(new ethers.Wallet(process.env.PRIVATE_KEY, provider));
+      await pushOnce({ provider, signer: attestor });
+    } catch (e) {
+      console.error('[demo] pre-resolve twap push failed:', e.message);
+    }
+
     // Live ends by TIMESTAMP — warp past liveEnd, then resolve.
     const [liveEnd, block] = await Promise.all([proposal.liveEnd(), provider.getBlock('latest')]);
     const delta = Number(liveEnd) - Number(block.timestamp) + 1;
