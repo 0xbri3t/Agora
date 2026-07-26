@@ -139,9 +139,10 @@ function mapBackendOrderToUserOrder(o: any): UserOrder {
     market: (o.side === "approve" ? "YES" : "NO"),
     type: (o.orderExecution === "market" ? "market" : "limit"),
     side: (o.orderType === "sell" ? "SELL" : "BUY"),
-    price: typeof o.price === "number" ? o.price : Number(o.price ?? o.executedPrice ?? 0),
-    amount: typeof o.amount === "number" ? o.amount : Number(o.amount ?? 0),
-    filled: typeof o.filledAmount === "number" ? o.filledAmount : Number(o.filledAmount ?? 0),
+    // Raw on-chain units -> human (price USDC 6d per 1e18 token, amounts 18d)
+    price: Number(o.price ?? o.executedPrice ?? 0) / 1e6,
+    amount: Number(o.amount ?? 0) / 1e18,
+    filled: Number(o.filledAmount ?? 0) / 1e18,
     status: statusMap[o.status] ?? "pending",
     timestamp: o.createdAt ? new Date(o.createdAt).getTime() : Date.now(),
     strategyHash: o.strategyHash ?? undefined,
@@ -168,8 +169,8 @@ export default function ProposalDetailPage({ params }: PageProps) {
 
   const { dockQuote, isLoading: cancellingOrder } = useAquaQuote()
 
-  // Live public orderbook for selected market
-  const { orders: liveOrderbook, refetch: refetchOrderbook } = useGetOrderbookOrders({ proposalId: id, market: selectedMarket, auto: true, pollMs: 3000 })
+  // Live public orderbook + executed trades for selected market
+  const { orders: liveOrderbook, trades: liveTrades, refetch: refetchOrderbook } = useGetOrderbookOrders({ proposalId: id, market: selectedMarket, auto: true, pollMs: 3000 })
 
   useEffect(() => {
     if (!hookProposal) {
@@ -337,6 +338,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
                   onCancelOrder={handleCancelOrder}
                   userOrdersError={userOrdersError}
                   orderBookEntries={liveOrderbook}
+                  trades={liveTrades}
                   proposalId={proposal.id}
                 />
               </div>

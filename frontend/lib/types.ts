@@ -78,6 +78,23 @@ export interface OrderBookEntry {
   filled?: number
   remaining?: number
   fillPct?: number // 0..1
+  // Raw on-chain units (price USDC 6d per 1e18 token, amount 18d) — needed for exact fills
+  priceRaw?: string
+  amountRaw?: string
+  status?: string
+  orderType?: "buy" | "sell"
+  strategyHash?: string
+  aquaOrder?: { maker: string; traits: string; data: string } | null
+  createdAt?: string
+}
+
+// A single executed fill on a lot (human units)
+export interface TradeFill {
+  price: number
+  amount: number
+  total: number
+  side: "buy" | "sell"
+  timestamp: number
 }
 
 export interface TWAPPoint {

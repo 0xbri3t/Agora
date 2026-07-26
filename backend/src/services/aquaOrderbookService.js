@@ -62,6 +62,17 @@ async function processShippedEvent(evt, { provider, cfg } = {}) {
   const existing = await Order.findOne({ strategyHash });
   if (existing) return existing;
 
+  // Decode the full ISwapVM.Order tuple so takers can fill via router.swap
+  const shipDecoded = aquaIface.decodeFunctionData('ship', tx.data);
+  const [orderTuple] = ethers.AbiCoder.defaultAbiCoder().decode(
+    ['tuple(address maker, uint256 traits, bytes data)'], shipDecoded.strategy
+  );
+  const aquaOrder = {
+    maker: orderTuple.maker,
+    traits: orderTuple.traits.toString(),
+    data: orderTuple.data,
+  };
+
   const order = await Order.create({
     proposalId: market.proposalId,
     side: market.side,
@@ -73,6 +84,7 @@ async function processShippedEvent(evt, { provider, cfg } = {}) {
     status: 'open',
     strategyHash,
     txHash: evt.transactionHash,
+    aquaOrder,
   });
 
   await updateOrderBook(market.proposalId, market.side);

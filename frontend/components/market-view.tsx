@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react"
 import { MarketDepthAndOrders } from "@/components/market-depth-orders"
 import { MarketPriceHeader } from "@/components/market-price-header"
-import type { MarketData, MarketOption, OrderBookEntry, UserOrder } from "@/lib/types"
+import type { MarketData, MarketOption, OrderBookEntry, TradeFill, UserOrder } from "@/lib/types"
 import { createChart, LineSeries } from "lightweight-charts"
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
 interface MarketViewProps {
@@ -13,6 +13,7 @@ interface MarketViewProps {
   onCancelOrder: (orderId: string) => void
   userOrdersError?: string | null
   orderBookEntries?: OrderBookEntry[]
+  trades?: TradeFill[]
   proposalId?: string
   // When provided, allows rendering only the chart block or only the orders block for grid alignment
   mode?: 'both' | 'chart' | 'orders'
@@ -30,6 +31,7 @@ export function MarketView({
   onCancelOrder,
   userOrdersError,
   orderBookEntries,
+  trades,
   proposalId,
   mode = 'both',
 }: MarketViewProps) {
@@ -411,6 +413,7 @@ export function MarketView({
       compact
       market={selectedMarket}
       orderBook={orderBook}
+      trades={trades}
       userOrders={marketOrders}
       onCancelOrder={onCancelOrder}
       userOrdersError={userOrdersError}

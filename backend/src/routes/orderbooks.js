@@ -569,6 +569,7 @@ router.get('/:proposalId/:side/orders', async (req, res) => {
   try {
     const { proposalId } = req.params;
     let { side } = req.params;
+    const { status } = req.query;
 
     side = normalizeSide(side);
     if (!isValidSide(side)) {
@@ -581,10 +582,12 @@ router.get('/:proposalId/:side/orders', async (req, res) => {
       return res.status(404).json({ error: `Proposal with id ${proposalId} not found` });
     }
 
+    // ?status=all also returns filled lots so the UI can render trade history
+    const statuses = status === 'all' ? ['open', 'partial', 'filled'] : ['open', 'partial'];
     const raw = await Order.find({
       proposalId,
       side,
-      status: { $in: ['open', 'partial'] }
+      status: { $in: statuses }
     })
       .sort({ createdAt: -1 })
       .select('-userAddress -txHash -__v -_id -fills.matchedOrderId')
