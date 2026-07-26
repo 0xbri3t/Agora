@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { LiveCountdown } from "@/components/live-countdown"
 import { ArrowLeft, ExternalLink, User, Clock } from "lucide-react"
 import { getSupportedCollaterals } from "@/lib/collaterals"
 import type { Proposal } from "@/lib/types"
@@ -91,6 +92,7 @@ export function ProposalHeader({ proposal, chainId }: ProposalHeaderProps) {
               <Badge variant="outline" className={badgeClass}>
                 {displayLabel}
               </Badge>
+              {stateRaw === 'live' && <LiveCountdown endTime={liveEnd} />}
             </div>
           </div>
           <div className="prose prose-invert max-w-none w-full">
