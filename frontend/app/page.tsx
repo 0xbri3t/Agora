@@ -15,18 +15,19 @@ export default function HomePage() {
         <div className="container mx-auto grid flex-1 grid-cols-1 gap-8 px-6 py-10 md:py-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-2">
           <div className="flex flex-col justify-center gap-6">
             <h1 className="max-w-xl font-display text-[clamp(3rem,8vw,7rem)] leading-[0.95] text-foreground">
+              Markets decide.
+            </h1>
+            <p className="max-w-md text-lg text-muted-foreground">
               <DecryptedText
-                text="Markets decide."
-                animateOn="view"
+                text="Any decision — a treasury move, a protocol change, a new CEO — becomes a prediction market. The price picks the outcome."
+                animateOn="inViewHover"
                 sequential
-                speed={55}
+                speed={5}
+                maxIterations={5}
+                useOriginalCharsOnly={false}
                 characters={SCRAMBLE}
                 encryptedClassName="opacity-40"
               />
-            </h1>
-            <p className="max-w-md text-lg text-muted-foreground">
-              Any decision — a treasury move, a protocol change, a new CEO —
-              becomes a prediction market. The price picks the outcome.
             </p>
             <Button asChild variant="ghost" className="w-fit px-0">
               <Link href="/proposals">Explore markets &#8599;</Link>
@@ -37,9 +38,16 @@ export default function HomePage() {
             <PixelAgora className="flex min-h-[520px] w-full items-center justify-center" />
             <figure className="max-w-md text-center">
               <blockquote className="text-sm leading-relaxed text-muted-foreground">
-                Civilization is built on correct capital allocation.
-                Corruption and conflicts of interest undermine it.
-                Agora solves this.
+                <DecryptedText
+                text="Civilization is built on correct capital allocation. Corruption and conflicts of interest undermine it. Agora solves this."
+                animateOn="inViewHover"
+                sequential
+                speed={5}
+                maxIterations={5}
+                useOriginalCharsOnly={false}
+                characters={SCRAMBLE}
+                encryptedClassName="opacity-40"
+              />
               </blockquote>
               <figcaption className="mt-2 font-mono text-xs text-muted-foreground/60">
                 — Arnau Briet
@@ -55,16 +63,26 @@ export default function HomePage() {
             <p className="font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
               <DecryptedText
                 text="Live conditional markets, on chain right now."
-                animateOn="view"
-                speed={40}
-                maxIterations={14}
+                animateOn="inViewHover"
+                sequential
+                speed={5}
+                maxIterations={5}
+                useOriginalCharsOnly={false}
                 characters={SCRAMBLE}
                 encryptedClassName="opacity-40"
               />
             </p>
             <p className="max-w-md text-muted-foreground">
-              Every proposal opens a YES and a NO market. These are trading as
-              you read this.
+              <DecryptedText
+                text="Every proposal opens a YES and a NO market. These are trading as you read this."
+                animateOn="inViewHover"
+                sequential
+                speed={5}
+                maxIterations={5}
+                useOriginalCharsOnly={false}
+                characters={SCRAMBLE}
+                encryptedClassName="opacity-40"
+              />
             </p>
           </div>
           <LiveMarketsPanel className="w-full max-w-md justify-self-center lg:justify-self-end" />
@@ -76,9 +94,11 @@ export default function HomePage() {
           <p className="mx-auto mb-12 max-w-2xl text-center font-display text-2xl leading-snug text-foreground md:text-[1.75rem]">
             <DecryptedText
               text="Two conditional markets trade the same decision. The stronger TWAP picks the winner."
-              animateOn="view"
-              speed={40}
-              maxIterations={14}
+              animateOn="inViewHover"
+              sequential
+              speed={5}
+              maxIterations={5}
+              useOriginalCharsOnly={false}
               characters={SCRAMBLE}
               encryptedClassName="opacity-40"
             />
@@ -89,7 +109,18 @@ export default function HomePage() {
 
       <section className="border-t border-border">
         <div className="container mx-auto px-6 py-16 md:py-24">
-          <p className="mb-12 text-center text-sm text-muted-foreground">Built with</p>
+          <p className="mb-12 text-center text-sm text-muted-foreground">
+            <DecryptedText
+              text="Built with"
+              animateOn="inViewHover"
+              sequential
+              speed={5}
+              maxIterations={5}
+              useOriginalCharsOnly={false}
+              characters={SCRAMBLE}
+              encryptedClassName="opacity-40"
+            />
+          </p>
           <PartnerLoop className="mx-auto max-w-4xl" />
         </div>
       </section>

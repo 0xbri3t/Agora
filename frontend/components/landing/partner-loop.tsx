@@ -2,111 +2,184 @@
 
 import { useEffect, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
+import DecryptedText from "@/components/ui/decrypted-text"
 
 /**
- * The partner stack as a closed loop: Uniswap bootstraps the market, 1inch
- * runs the trading, The Graph indexes it all and feeds the copilot — whose
- * insights flow back into the next bid. A pulse cycles the loop; each node
- * lights up as it passes. Text is static and never gated on animation.
+ * Partner stack as three horizontal bands, each with its own looping
+ * micro-visualization: Uniswap's clearing price staircase, 1inch's
+ * fill-or-kill lot grid, The Graph's index rows being written. Deliberately
+ * a different visual language from the DecisionFlow rail above it.
  */
 
-const NODES = [
+const INK = "var(--foreground)"
+const UP = "var(--data-up)"
+
+function useTick(ms: number, steps: number, enabled: boolean) {
+  const [t, setT] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    const id = setInterval(() => setT((v) => (v + 1) % steps), ms)
+    return () => clearInterval(id)
+  }, [ms, steps, enabled])
+  return t
+}
+
+/** Uniswap: clearing price staircase climbing from the floor, then reset. */
+function ClearingSteps({ animate }: { animate: boolean }) {
+  const STEPS = 6
+  const t = useTick(520, STEPS + 2, animate)
+  const lit = animate ? Math.min(t, STEPS) : STEPS
+  return (
+    <svg viewBox="0 0 220 96" className="w-full" aria-hidden>
+      <line x1={8} y1={84} x2={212} y2={84} stroke={INK} strokeWidth={1.5} opacity={0.25} />
+      {Array.from({ length: STEPS }, (_, i) => (
+        <motion.rect
+          key={i}
+          x={16 + i * 33}
+          width={22}
+          animate={{
+            y: 84 - (14 + i * 12),
+            height: 14 + i * 12,
+            opacity: i < lit ? 0.9 : 0.15,
+          }}
+          transition={{ duration: 0.3 }}
+          fill={i === STEPS - 1 ? UP : INK}
+        />
+      ))}
+      <text x={210} y={20} textAnchor="end" fontSize={9} fill={INK} opacity={0.45} className="font-mono">
+        clearing ↑
+      </text>
+    </svg>
+  )
+}
+
+/** 1inch: a ladder of lots filling all-or-nothing, one snap at a time. */
+function LotGrid({ animate }: { animate: boolean }) {
+  const COLS = 8
+  const ROWS = 3
+  const N = COLS * ROWS
+  const t = useTick(240, N + 6, animate)
+  const filled = animate ? Math.min(t, N) : N
+  return (
+    <svg viewBox="0 0 220 96" className="w-full" aria-hidden>
+      {Array.from({ length: N }, (_, i) => {
+        const c = i % COLS
+        const r = Math.floor(i / COLS)
+        const isFilled = i < filled
+        return (
+          <motion.rect
+            key={i}
+            x={14 + c * 25}
+            y={16 + r * 24}
+            width={18}
+            height={17}
+            animate={{ opacity: isFilled ? 0.9 : 0.12 }}
+            transition={{ duration: 0.15 }}
+            fill={isFilled && (i + 1) % COLS === 0 ? UP : INK}
+          />
+        )
+      })}
+      <text x={210} y={12} textAnchor="end" fontSize={9} fill={INK} opacity={0.45} className="font-mono">
+        fill-or-kill
+      </text>
+    </svg>
+  )
+}
+
+/** The Graph: index rows being written, cursor blinking on the live one. */
+function IndexRows({ animate }: { animate: boolean }) {
+  const ROWS = 5
+  const t = useTick(430, ROWS + 2, animate)
+  const written = animate ? Math.min(t, ROWS) : ROWS
+  const widths = [150, 118, 164, 96, 138]
+  return (
+    <svg viewBox="0 0 220 96" className="w-full" aria-hidden>
+      {widths.map((w, i) => (
+        <g key={i}>
+          <motion.rect
+            x={14}
+            y={14 + i * 16}
+            height={7}
+            animate={{ width: i < written ? w : 0, opacity: i < written ? 0.55 : 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            fill={INK}
+          />
+          <rect x={14 + 158} y={14 + i * 16} width={34} height={7}
+            fill={INK} opacity={i < written ? 0.2 : 0} />
+        </g>
+      ))}
+      {animate && written < ROWS && (
+        <motion.rect
+          x={16} y={14 + written * 16} width={7} height={7} fill={UP}
+          animate={{ opacity: [1, 0.2, 1] }}
+          transition={{ duration: 0.8, repeat: Infinity }}
+        />
+      )}
+      <text x={210} y={12} textAnchor="end" fontSize={9} fill={INK} opacity={0.45} className="font-mono">
+        indexing
+      </text>
+    </svg>
+  )
+}
+
+const PARTNERS = [
   {
-    x: 160,
     name: "Uniswap",
     engine: "CCA",
     logo: "/logos/uniswap.svg",
     role: "Bootstraps each market — a continuous clearing auction discovers the opening price.",
+    Viz: ClearingSteps,
   },
   {
-    x: 480,
     name: "1inch",
     engine: "Aqua · SwapVM",
     logo: "/logos/1inch.svg",
     role: "Runs the trading — self-custodial fill-or-kill lots, settled wallet to wallet.",
+    Viz: LotGrid,
   },
   {
-    x: 800,
     name: "The Graph",
     engine: "Subgraph",
     logo: "/logos/thegraph.svg",
     role: "Indexes every bid, fill and TWAP — feeds the charts and the copilot.",
+    Viz: IndexRows,
   },
 ] as const
 
-const STAGE_MS = 1500
-const INK = "var(--foreground)"
-
 export function PartnerLoop({ className }: { className?: string }) {
   const reduced = useReducedMotion()
-  const [stage, setStage] = useState(reduced ? 2 : 0)
-
-  useEffect(() => {
-    if (reduced) return
-    const id = setInterval(() => setStage((s) => (s + 1) % 3), STAGE_MS)
-    return () => clearInterval(id)
-  }, [reduced])
-
-  const dur = STAGE_MS / 1000
-  // stage 0: Uniswap -> 1inch, stage 1: 1inch -> The Graph, stage 2: return leg
-  const pulseAnim = stage === 0
-    ? { cx: [160, 480], cy: [60, 60] }
-    : stage === 1
-      ? { cx: [480, 800], cy: [60, 60] }
-      : { cx: [800, 800, 160, 160], cy: [60, 118, 118, 60] }
-
-  const active = (i: number) => (stage === 2 ? i === 0 || i === 2 : i === stage || i === stage + 1)
-
   return (
     <div className={className}>
-      <svg viewBox="0 0 960 132" className="w-full" role="img"
-        aria-label="Uniswap bootstraps the market, 1inch runs the trading, The Graph indexes it">
-        {/* Forward rail */}
-        <line x1={160} y1={60} x2={800} y2={60} stroke={INK} strokeWidth={1.5} opacity={0.15} />
-        {/* Return rail */}
-        <path d="M800,60 L800,118 L160,118 L160,60" fill="none" stroke={INK} strokeWidth={1.5}
-          strokeDasharray="4 5" opacity={0.12} />
-
-        {/* Edge labels */}
-        <text x={320} y={50} textAnchor="middle" fontSize={10.5} fill={INK} opacity={0.5} className="font-mono">
-          opening price
-        </text>
-        <text x={640} y={50} textAnchor="middle" fontSize={10.5} fill={INK} opacity={0.5} className="font-mono">
-          fills · TWAP
-        </text>
-        <text x={480} y={112} textAnchor="middle" fontSize={10.5} fill={INK} opacity={0.5} className="font-mono">
-          insights → next bid
-        </text>
-
-        {/* Travelling pulse */}
-        {!reduced && (
-          <motion.circle
-            r={4.5} fill={INK}
-            animate={pulseAnim}
-            transition={{ duration: dur, ease: "easeInOut", times: stage === 2 ? [0, 0.25, 0.75, 1] : undefined }}
-          />
-        )}
-
-        {/* Nodes: bare logos on the rail */}
-        {NODES.map((n, i) => (
-          <motion.g key={n.name} animate={{ opacity: active(i) ? 1 : 0.45 }}>
-            <circle cx={n.x} cy={60} r={30} fill="var(--background)" stroke={INK}
-              strokeOpacity={0.18} strokeWidth={1.5} />
-            <image href={n.logo} x={n.x - 17} y={43} width={34} height={34} />
-          </motion.g>
-        ))}
-      </svg>
-
-      <div className="mx-auto mt-6 grid max-w-5xl grid-cols-1 gap-8 sm:grid-cols-3">
-        {NODES.map((n, i) => (
-          <div key={n.name} className="flex flex-col items-center gap-1.5 text-center">
-            <div className="flex items-baseline gap-2">
-              <span className="font-display text-lg text-foreground">{n.name}</span>
-              <span className="font-mono text-[11px] text-muted-foreground/70">{n.engine}</span>
+      <div className="divide-y divide-border border-y border-border">
+        {PARTNERS.map(({ name, engine, logo, role, Viz }) => (
+          <div
+            key={name}
+            className="grid grid-cols-1 items-center gap-6 py-8 sm:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] sm:gap-12"
+          >
+            <div className="flex items-start gap-4">
+              <img src={logo} alt="" className="mt-0.5 h-9 w-9 shrink-0" />
+              <div className="space-y-1">
+                <div className="flex items-baseline gap-2.5">
+                  <span className="font-display text-xl text-foreground">{name}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground/70">{engine}</span>
+                </div>
+                <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+                  <DecryptedText
+                    text={role}
+                    animateOn="inViewHover"
+                    sequential
+                    speed={5}
+                    maxIterations={5}
+                    useOriginalCharsOnly={false}
+                    characters={"!<>-_\\/[]{}—=+*^?#01"}
+                    encryptedClassName="opacity-40"
+                  />
+                </p>
+              </div>
             </div>
-            <p className="max-w-[26ch] text-sm leading-relaxed text-muted-foreground">
-              {n.role}
-            </p>
+            <div className="max-w-[240px] justify-self-center sm:justify-self-end">
+              <Viz animate={!reduced} />
+            </div>
           </div>
         ))}
       </div>
