@@ -437,10 +437,11 @@ async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
     const noBase = await clr(noAuction);
     log(run, `base forecasts — YES $${yesBase.toFixed(2)}, NO $${noBase.toFixed(2)}`);
 
-    // Price drift helpers — bias='no' mirrors every drift so the market
-    // rejects the proposal instead of backing it.
-    const mirror = (v) => Math.round((2 - v) * 100) / 100;
-    const px = (side, value) => (bias === 'no' ? mirror(value) : value);
+    // bias='no' uses each step's pxNo drift instead of px. The auction always
+    // leaves the YES base well above NO, and the TWAP weighs the WHOLE path —
+    // a gentle mirror is not enough, so the no-side paths cross hard: YES
+    // collapses toward 0.42x its base while NO doubles off its own.
+    const px = (step) => (bias === 'no' ? step.pxNo : step.px);
     if (bias === 'no') log(run, 'bias: the crowd turns against this one — NO climbs');
 
     // Resting BIDS for the order book (display seed). The Aqua lot protocol is
@@ -477,8 +478,8 @@ async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
     // Anchor the seeded bids (and the resting asks below) to where each side
     // will END after the scripted drift, so the final book reads coherent:
     // bids under the last trade, asks above it, for either bias.
-    const yesFinal = yesBase * px('YES', 1.3);
-    const noFinal = noBase * px('NO', 0.85);
+    const yesFinal = yesBase * (bias === 'no' ? 0.42 : 1.3);
+    const noFinal = noBase * (bias === 'no' ? 2.1 : 0.85);
     await seedBids('YES', yesFinal);
     await seedBids('NO', noFinal);
     log(run, 'bid side seeded on both books');
@@ -488,18 +489,18 @@ async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
     // down — the futarchy gap opens on the charts in real time. qty in whole
     // tokens, price as multiple of base.
     const script = [
-      { maker: 4, taker: 1, side: 'YES', qty: 2.0, px: 1.00, wait: 0 },
-      { maker: 2, taker: 3, side: 'NO',  qty: 1.5, px: 1.00, wait: 3 },
-      { maker: 4, taker: 0, side: 'YES', qty: 1.8, px: 1.05, wait: 3 },
-      { maker: 2, taker: 0, side: 'NO',  qty: 1.2, px: 0.96, wait: 4 },
-      { maker: 4, taker: 2, side: 'YES', qty: 2.5, px: 1.09, wait: 3 },
-      { maker: 4, taker: 3, side: 'YES', qty: 1.5, px: 1.14, wait: 4 },
-      { maker: 2, taker: 1, side: 'NO',  qty: 1.8, px: 0.91, wait: 3 },
-      { maker: 4, taker: 0, side: 'YES', qty: 2.2, px: 1.18, wait: 3 },
-      { maker: 2, taker: 4, side: 'NO',  qty: 1.0, px: 0.88, wait: 4 },
-      { maker: 4, taker: 1, side: 'YES', qty: 1.6, px: 1.24, wait: 3 },
-      { maker: 2, taker: 0, side: 'NO',  qty: 1.4, px: 0.85, wait: 3 },
-      { maker: 4, taker: 3, side: 'YES', qty: 2.0, px: 1.30, wait: 4 },
+      { maker: 4, taker: 1, side: 'YES', qty: 2.0, px: 1.00, pxNo: 1.00, wait: 0 },
+      { maker: 2, taker: 3, side: 'NO',  qty: 1.5, px: 1.00, pxNo: 1.00, wait: 3 },
+      { maker: 4, taker: 0, side: 'YES', qty: 1.8, px: 1.05, pxNo: 0.92, wait: 3 },
+      { maker: 2, taker: 0, side: 'NO',  qty: 1.2, px: 0.96, pxNo: 1.20, wait: 4 },
+      { maker: 4, taker: 2, side: 'YES', qty: 2.5, px: 1.09, pxNo: 0.84, wait: 3 },
+      { maker: 4, taker: 3, side: 'YES', qty: 1.5, px: 1.14, pxNo: 0.74, wait: 4 },
+      { maker: 2, taker: 1, side: 'NO',  qty: 1.8, px: 0.91, pxNo: 1.45, wait: 3 },
+      { maker: 4, taker: 0, side: 'YES', qty: 2.2, px: 1.18, pxNo: 0.63, wait: 3 },
+      { maker: 2, taker: 4, side: 'NO',  qty: 1.0, px: 0.88, pxNo: 1.75, wait: 4 },
+      { maker: 4, taker: 1, side: 'YES', qty: 1.6, px: 1.24, pxNo: 0.52, wait: 3 },
+      { maker: 2, taker: 0, side: 'NO',  qty: 1.4, px: 0.85, pxNo: 2.10, wait: 3 },
+      { maker: 4, taker: 3, side: 'YES', qty: 2.0, px: 1.30, pxNo: 0.42, wait: 4 },
     ];
 
     let filled = 0;
@@ -507,7 +508,7 @@ async function runMarketDemo(proposalAddress, proposalId, bias = 'yes') {
       await sleep(step.wait * 1000);
       const outcomeToken = step.side === 'YES' ? yesToken : noToken;
       const base = step.side === 'YES' ? yesBase : noBase;
-      const price = base * px(step.side, step.px);
+      const price = base * px(step);
       const lotToken = ethers.parseUnits(step.qty.toString(), 18);
       const lotUsdc = (lotToken * ethers.parseUnits(price.toFixed(6), 6)) / 10n ** 18n;
       const makerW = wallets[step.maker];
