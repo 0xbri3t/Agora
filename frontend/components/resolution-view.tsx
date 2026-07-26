@@ -2,11 +2,9 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, TrendingUp, Coins, Target, Shield, Clock } from "lucide-react"
 import type { MarketOption } from "@/lib/types"
 import { useAccount, useReadContract, useConfig } from "wagmi"
-import { useCallback, useMemo, useEffect, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { proposal_abi } from "@/contracts/proposal-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
@@ -25,11 +23,17 @@ interface AuctionResolvedProps {
   onClaimWinnings: () => void
   onClaimLosingTokens: () => void
   canClaim: boolean
-  // Optional, formatted values to show above the claim button
   userCollateralBalanceFormatted?: string
   claimableCollateralFormatted?: string
   userTreasuryCollateralFormatted?: string
 }
+
+const INK = "var(--foreground)"
+const UP = "var(--data-up)"
+const DOWN = "var(--destructive)"
+
+const fmt = (n: number, d = 2) =>
+  n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
 
 export function AuctionResolved({
   winningMarket,
@@ -38,7 +42,6 @@ export function AuctionResolved({
   totalVolume,
   userYesTokens,
   userNoTokens,
-  onClaimWinnings,
   onClaimLosingTokens,
   canClaim,
   userCollateralBalanceFormatted,
@@ -48,313 +51,210 @@ export function AuctionResolved({
   const [isClaiming, setIsClaiming] = useState(false)
   const losingMarket = winningMarket === "YES" ? "NO" : "YES"
   const winningPrice = winningMarket === "YES" ? finalYesPrice : finalNoPrice
-  const losingPrice = winningMarket === "YES" ? finalNoPrice : finalYesPrice
-  const userWinningTokens = winningMarket === "YES" ? userYesTokens : userNoTokens
-  const userLosingTokens = winningMarket === "YES" ? userNoTokens : userYesTokens
-  // Detect cancelled state (prop or context, aquí ejemplo por tokens = 0)
-  const isCancelled = userYesTokens === 0 && userNoTokens === 0
-  const outcomeLabel = isCancelled ? "Cancelled" : (winningMarket === "YES" ? "Approved" : "Rejected")
   const priceDiff = Math.abs(finalYesPrice - finalNoPrice)
+  const userLosingTokens = winningMarket === "YES" ? userNoTokens : userYesTokens
+  const winColor = winningMarket === "YES" ? UP : DOWN
 
-  // Data for Butterfly Spread (flat segment at payoff -0.5 between midpoints)
+  // Butterfly payoff centered on the winning TWAP. Wing width follows the
+  // decision gap, floored so the shape never degenerates.
+  const wing = Math.max(priceDiff, winningPrice * 0.15, 0.01)
   const butterflyData = [
-    { price: winningPrice - priceDiff, payoff: -0.5 },
-    { price: winningPrice - priceDiff / 2, payoff: -0.5 },
-    { price: winningPrice, payoff: 2 },
-    { price: winningPrice + priceDiff / 2, payoff: -0.5 },
-    { price: winningPrice + priceDiff, payoff: -0.5 },
+    { price: winningPrice - wing * 1.8, payoff: 0 },
+    { price: winningPrice - wing, payoff: 0 },
+    { price: winningPrice, payoff: 1 },
+    { price: winningPrice + wing, payoff: 0 },
+    { price: winningPrice + wing * 1.8, payoff: 0 },
   ]
-
-  // Reference line data for payoff = 0
-  const zeroLineData = butterflyData.map((d) => ({ price: d.price, payoff: 0 }))
 
   return (
     <div className="space-y-6">
-      {/* Final Results Header */}
-      <Card className={isCancelled ? "border-red-500/50 bg-red-500/5 shadow-lg" : "border-green-500/50 bg-green-500/5 shadow-lg"}>
-        <CardHeader className="text-center pb-4">
-          <div className="flex justify-center mb-4">
-            <div className={isCancelled ? "rounded-full bg-red-500/20 p-4" : "rounded-full bg-green-500/20 p-4"}>
-              <CheckCircle2 className={isCancelled ? "h-12 w-12 text-red-600 dark:text-red-400" : "h-12 w-12 text-green-600 dark:text-green-400"} />
+      {/* Verdict */}
+      <Card>
+        <CardContent className="flex flex-col gap-6 py-6 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1.5">
+            <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
+              Resolved on-chain
+            </p>
+            <h2 className="font-display text-4xl text-foreground">
+              <span style={{ color: winColor }}>{winningMarket}</span> wins
+            </h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              The {winningMarket} market held the stronger TWAP. Winners keep
+              their tokens; the {losingMarket} side reclaims its USDC pro rata.
+            </p>
+          </div>
+          <div className="flex items-end gap-8">
+            <div>
+              <p className="text-xs text-muted-foreground">TWAP YES</p>
+              <p
+                className="font-mono text-2xl tabular-nums"
+                style={{ color: winningMarket === "YES" ? UP : undefined, opacity: winningMarket === "YES" ? 1 : 0.55 }}
+              >
+                ${fmt(finalYesPrice)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">TWAP NO</p>
+              <p
+                className="font-mono text-2xl tabular-nums"
+                style={{ color: winningMarket === "NO" ? DOWN : undefined, opacity: winningMarket === "NO" ? 1 : 0.55 }}
+              >
+                ${fmt(finalNoPrice)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Margin</p>
+              <p className="font-mono text-2xl tabular-nums text-foreground">${fmt(priceDiff)}</p>
             </div>
           </div>
-          <CardTitle className={isCancelled ? "text-3xl font-bold text-red-600 dark:text-red-400" : "text-3xl font-bold text-green-600 dark:text-green-400"}>
-            {isCancelled ? "Market Cancelled" : "Market Resolved"}
-          </CardTitle>
-          <CardDescription className="text-lg mt-2">
-            {isCancelled ? "This market was cancelled and no tokens can be claimed." : "The market has been settled and final results are available"}
-          </CardDescription>
-        </CardHeader>
+        </CardContent>
       </Card>
 
-      {/* Two-column layout: Left = Winning + Chart, Right = Losing + Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Winning Market */}
-          <Card className={isCancelled ? "border-red-500/50 shadow-md" : "border-green-500/50 shadow-md"}>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <TrendingUp className={isCancelled ? "h-6 w-6 text-red-600 dark:text-red-400" : "h-6 w-6 text-green-600 dark:text-green-400"} />
-                  <div>
-                    <CardTitle className="text-2xl">{isCancelled ? "Market Status" : "Winning Market"}</CardTitle>
-                    <CardDescription>{isCancelled ? "Market was cancelled" : "Final settlement details"}</CardDescription>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge className={`text-white text-lg px-4 py-2 ${isCancelled ? 'bg-red-600 hover:bg-red-700' : (winningMarket === 'YES' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700')}`}>{outcomeLabel}</Badge>
-                </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 items-start">
+        {/* Butterfly settlement */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Butterfly settlement</CardTitle>
+            <CardDescription>
+              Winner tokens settle as butterfly options — the payout peaks when the
+              asset&apos;s real price lands on the winning forecast of ${fmt(winningPrice)}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {winningPrice <= 0 ? (
+              <div className="flex h-56 items-center justify-center font-mono text-sm text-muted-foreground">
+                settlement chart unavailable — no TWAP recorded for this market
               </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Final Price</p>
-                  <p className="text-3xl font-bold text-green-600 dark:text-green-400">${winningPrice.toFixed(4)}</p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Total Volume</p>
-                  <p className="text-3xl font-bold text-foreground">${totalVolume.toLocaleString()}</p>
-                </div>
+            ) : (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={butterflyData} margin={{ top: 10, right: 16, bottom: 4, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={INK} opacity={0.15} />
+                  <XAxis
+                    dataKey="price"
+                    type="number"
+                    domain={["dataMin", "dataMax"]}
+                    tickFormatter={(v: number) => `$${fmt(v)}`}
+                    stroke={INK}
+                    fontSize={11}
+                    tick={{ fill: INK, opacity: 0.7 }}
+                  />
+                  <YAxis
+                    domain={[0, 1.15]}
+                    ticks={[0, 0.5, 1]}
+                    tickFormatter={(v: number) => (v === 1 ? "max" : v === 0 ? "0" : "")}
+                    stroke={INK}
+                    fontSize={11}
+                    tick={{ fill: INK, opacity: 0.7 }}
+                    width={40}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "rgba(0,0,0,0.8)",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      borderRadius: "4px",
+                      color: "#fff",
+                    }}
+                    formatter={(value: number) => [`${Math.round(value * 100)}% of max payout`, ""]}
+                    labelFormatter={(label: number) => `spot $${fmt(Number(label))}`}
+                  />
+                  <ReferenceLine
+                    x={winningPrice}
+                    stroke={winColor}
+                    strokeDasharray="4 4"
+                    label={{ value: "winning TWAP", position: "top", fill: INK, fontSize: 10, opacity: 0.7 }}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="payoff"
+                    stroke={winColor}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            )}
+            <p className="mt-3 font-mono text-xs text-muted-foreground">
+              closer forecast → larger payout · settles against the reference price at expiry
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Your position */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Your position</CardTitle>
+            <CardDescription>Balances and what you can claim</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <dl className="space-y-2.5 font-mono text-sm tabular-nums">
+              <div className="flex items-baseline justify-between">
+                <dt className="text-muted-foreground">tYES held</dt>
+                <dd className="text-foreground">{fmt(userYesTokens)}</dd>
               </div>
-
-              <div className="mb-4">
-                <h3 className="text-xl font-bold mb-4 text-foreground">Butterfly Option Strategy</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Card 1: Real Skin in the Game */}
-                  <div className="group relative overflow-hidden rounded-lg border border-border bg-gradient-to-br from-blue-500/10 via-background to-background p-6 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/20 hover:border-blue-500/50">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <div className="relative z-10">
-                      <div className="flex items-start gap-3 mb-3">
-                        <div className="rounded-full bg-blue-500/20 p-2 group-hover:bg-blue-500/30 transition-colors">
-                          <Target className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                        </div>
-                        <h4 className="font-semibold text-base text-foreground">Real Skin in the Game</h4>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        Participants have genuine commitment when passing proposals through an option-based approach
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Card 2: Proportional Rewards */}
-                  <div className="group relative overflow-hidden rounded-lg border border-border bg-gradient-to-br from-green-500/10 via-background to-background p-6 transition-all duration-300 hover:shadow-lg hover:shadow-green-500/20 hover:border-green-500/50">
-                    <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <div className="relative z-10">
-                      <div className="flex items-start gap-3 mb-3">
-                        <div className="rounded-full bg-green-500/20 p-2 group-hover:bg-green-500/30 transition-colors">
-                          <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
-                        </div>
-                        <h4 className="font-semibold text-base text-foreground">Proportional Rewards</h4>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        Users are rewarded based on how close their prediction is to the actual spot price
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Card 3: Limited Downside Risk */}
-                  <div className="group relative overflow-hidden rounded-lg border border-border bg-gradient-to-br from-amber-500/10 via-background to-background p-6 transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/20 hover:border-amber-500/50">
-                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <div className="relative z-10">
-                      <div className="flex items-start gap-3 mb-3">
-                        <div className="rounded-full bg-amber-500/20 p-2 group-hover:bg-amber-500/30 transition-colors">
-                          <Shield className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                        </div>
-                        <h4 className="font-semibold text-base text-foreground">Limited Downside Risk</h4>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        Premium-based betting reflects true conviction while protecting participants from unlimited losses
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Card 4: Flexible Exercise */}
-                  <div className="group relative overflow-hidden rounded-lg border border-border bg-gradient-to-br from-orange-500/10 via-background to-background p-6 transition-all duration-300 hover:shadow-lg hover:shadow-orange-500/20 hover:border-orange-500/50">
-                    <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    <div className="relative z-10">
-                      <div className="flex items-start gap-3 mb-3">
-                        <div className="rounded-full bg-orange-500/20 p-2 group-hover:bg-orange-500/30 transition-colors">
-                          <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                        </div>
-                        <h4 className="font-semibold text-base text-foreground">Flexible Exercise</h4>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        Short-term options can be exercised at any moment, giving users control over their exposure
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex items-baseline justify-between">
+                <dt className="text-muted-foreground">tNO held</dt>
+                <dd className="text-foreground">{fmt(userNoTokens)}</dd>
               </div>
-
-              {/* Butterfly Spread Chart */}
-              <div className="flex justify-center items-center mt-10" style={{ minHeight: '420px' }}>
-                <ResponsiveContainer width="100%" height={380}>
-                  <LineChart data={butterflyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
-                    <XAxis dataKey="price" />
-                    <YAxis domain={[-1.5, 2.5]} />
-                    <Tooltip
-                      formatter={(value: number) => {
-                        if (value > 0) return `$${(value * winningPrice).toFixed(2)}`
-                        if (value < 0) return `$${(Math.abs(value) * 1.5 * winningPrice).toFixed(2)}`
-                        if (value === 0) return `$${winningPrice.toFixed(2)}`
-                      }}
-                    />
-
-                    <Line type="linear" dataKey="payoff" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} />
-
-                    <Line
-                      type="linear"
-                      dataKey="payoff"
-                      data={zeroLineData}
-                      stroke="#ef4444"
-                      strokeDasharray="4 2"
-                      dot={false}
-                    />
-
-                    <ReferenceLine
-                      y={10}
-                      stroke="#f59e0b"
-                      strokeDasharray="3 3"
-                      label={{ value: "Start +10", position: "top" }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-
-              {userWinningTokens > 0 && false && (
-                <div className="pt-4 border-t border-border">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Your Winning Tokens</p>
-                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                        {userWinningTokens.toFixed(2)} {winningMarket}
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Value: ${(userWinningTokens * winningPrice).toFixed(2)}
-                      </p>
-                    </div>
-                    <Coins className="h-8 w-8 text-green-600 dark:text-green-400" />
-                  </div>
+              {userTreasuryCollateralFormatted && (
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-muted-foreground">Treasury share</dt>
+                  <dd className="text-foreground">${fmt(Number(userTreasuryCollateralFormatted))}</dd>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </div>
+              <div className="flex items-baseline justify-between border-t border-border pt-2.5">
+                <dt className="text-muted-foreground">Claimable ({losingMarket} side)</dt>
+                <dd style={{ color: UP }}>
+                  ${fmt(Number(claimableCollateralFormatted ?? 0))}
+                </dd>
+              </div>
+              {userCollateralBalanceFormatted && (
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-muted-foreground">Wallet USDC</dt>
+                  <dd className="text-foreground">${fmt(Number(userCollateralBalanceFormatted))}</dd>
+                </div>
+              )}
+            </dl>
+            <Button
+              className="w-full"
+              size="lg"
+              disabled={!canClaim || isClaiming || userLosingTokens <= 0}
+              onClick={async () => {
+                if (!canClaim || isClaiming) return
+                try {
+                  setIsClaiming(true)
+                  await Promise.resolve(onClaimLosingTokens())
+                } finally {
+                  setIsClaiming(false)
+                }
+              }}
+            >
+              {isClaiming ? "Claiming…" : `Claim USDC from ${losingMarket} tokens`}
+            </Button>
+            {userLosingTokens <= 0 && (
+              <p className="text-xs text-muted-foreground">
+                Nothing to claim — you hold no {losingMarket} tokens.
+              </p>
+            )}
+            {winningMarket && (userYesTokens > 0 || userNoTokens > 0) && (
+              <p className="text-xs text-muted-foreground">
+                {winningMarket === "YES" ? userYesTokens : userNoTokens} t{winningMarket} stay in your
+                wallet and settle as butterflies at expiry.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Right column: Losing Market + Market Summary */}
-        <div className="lg:col-span-1 space-y-6">
-          {/* Losing Market */}
-          <Card className="border-border/50 shadow-md">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl">Losing Market</CardTitle>
-                  <CardDescription>Reclaim your USDC tokens from the losing side</CardDescription>
-                </div>
-                <Badge variant="outline" className="text-lg px-4 py-2">
-                  {losingMarket}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Final Price</p>
-                  <p className="text-2xl font-semibold text-muted-foreground">${losingPrice.toFixed(4)}</p>
-                </div>
-              </div>
-                <div className="pt-4 border-t border-border">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Your Tokens</p>
-                      <p className="text-xl font-semibold text-foreground">
-                        {userLosingTokens.toFixed(2)} t{losingMarket}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">These tokens can be reclaimed</p>
-                    </div>
-                    <Coins className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3">
-                    {userTreasuryCollateralFormatted && (
-                      <div className="rounded-md border bg-muted/30 p-3">
-                        <p className="text-xs text-muted-foreground">Your total USDC in Treasury</p>
-                        <p className="text-lg font-semibold">${Number(userTreasuryCollateralFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })}</p>
-                      </div>
-                    )}
-                    {claimableCollateralFormatted && (
-                      <div className="rounded-md border bg-emerald-500/5 p-3">
-                        <p className="text-xs text-muted-foreground">Claim USDC from loser token</p>
-                        <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                          ${Number(claimableCollateralFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  {/* User USDC balance as plain text between claimable and button */}
-                  {userCollateralBalanceFormatted && (
-                    <p className="text-sm text-muted-foreground mb-2">Your USDC balance: <span className="font-semibold">${Number(userCollateralBalanceFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })}</span></p>
-                  )}
-                  <Button
-                    onClick={async () => {
-                      if (!canClaim || isClaiming) return
-                      try {
-                        setIsClaiming(true)
-                        await Promise.resolve(onClaimLosingTokens())
-                      } finally {
-                        setIsClaiming(false)
-                      }
-                    }}
-                    className={[
-                      "w-full text-base py-5",
-                      "rounded-md text-white",
-                      "bg-gradient-to-b from-emerald-500 to-emerald-600",
-                      "shadow ring-1 ring-emerald-400/40",
-                      "transition-all duration-200",
-                      "hover:from-emerald-500/90 hover:to-emerald-600/90 hover:shadow-lg hover:shadow-emerald-500/20",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400",
-                      "disabled:opacity-50 disabled:cursor-not-allowed",
-                    ].join(" ")}
-                    size="lg"
-                    disabled={!canClaim || isClaiming}
-                  >
-                    <Coins className="mr-2 h-4 w-4" />
-                    {isClaiming ? "Claiming..." : "Claim USDC tokens"}
-                  </Button>
-                </div>
-            </CardContent>
-          </Card>
-
-          {/* Market Summary */}
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle>Market Summary</CardTitle>
-              <CardDescription>Final statistics for this prediction market</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">YES Final Price</p>
-                  <p className="text-xl font-semibold">${finalYesPrice.toFixed(4)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">NO Final Price</p>
-                  <p className="text-xl font-semibold">${finalNoPrice.toFixed(4)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Price Difference (YES - NO)</p>
-                  <p className="text-xl font-semibold">${priceDiff.toFixed(4)}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Total Volume</p>
-                  <p className="text-xl font-semibold">${totalVolume.toLocaleString()}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      {/* Summary strip */}
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-2 border-y border-border py-3 font-mono text-xs tabular-nums text-muted-foreground">
+        <span>YES ${fmt(finalYesPrice)}</span>
+        <span>NO ${fmt(finalNoPrice)}</span>
+        <span>margin ${fmt(priceDiff)}</span>
+        <span>volume ${fmt(totalVolume, 0)}</span>
+        <span style={{ color: winColor }}>{winningMarket} executed</span>
       </div>
     </div>
   )
