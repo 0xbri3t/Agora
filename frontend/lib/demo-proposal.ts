@@ -15,7 +15,7 @@ export const DEMO_PROPOSAL = {
   title: "Adopt UNI as a treasury reserve",
   description:
     "Futarchy demo: if the YES market prices this world above NO at close, the treasury adopts UNI. Calibrated for the demo director.",
-  auctionDuration: 720n, // 60 blocks ≈ 120 real seconds on the fork
+  auctionDuration: 1080n, // 90 blocks ≈ 3 real minutes on the fork — room to click Auction calmly
   liveDuration: 600n, // short live phase — skip time to reach resolution fast
   subjectToken: "78d185a741d07edb3412b09008b7c5cfb9bbbd7d568bf00ba737b456ba171501", // UNI (Pyth price id)
   minToOpen: 10n ** 18n, // 1 token per side to graduate

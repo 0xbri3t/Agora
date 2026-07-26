@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const Proposal = require('../models/Proposal');
-const { runAuctionDemo, runMarketDemo, getRun } = require('../services/demoService');
+const { runAuctionDemo, runMarketDemo, getRun, skipPhase } = require('../services/demoService');
 
 function forkOnly(req, res, next) {
   if (Number(process.env.CHAIN_ID) !== 31337) {
@@ -34,8 +34,20 @@ router.post('/:id/market', forkOnly, async (req, res) => {
   try {
     const doc = await findProposal(req.params.id);
     if (!doc?.proposalAddress) return res.status(404).json({ error: 'proposal not found' });
-    runMarketDemo(doc.proposalAddress, req.params.id).catch(() => {});
+    const bias = req.query.bias === 'no' ? 'no' : 'yes';
+    runMarketDemo(doc.proposalAddress, req.params.id, bias).catch(() => {});
     res.json({ started: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/skip', forkOnly, async (req, res) => {
+  try {
+    const doc = await findProposal(req.params.id);
+    if (!doc?.proposalAddress) return res.status(404).json({ error: 'proposal not found' });
+    const result = await skipPhase(doc.proposalAddress);
+    res.json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

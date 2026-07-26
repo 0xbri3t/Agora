@@ -84,7 +84,7 @@ export default function ProposalsPage() {
   const { mintPublic, isMinting, collateralBalance, error: mintError, refetchOnchain } = useCreateOrder()
   const chainId = useChainId()
   const collaterals = getSupportedCollaterals(chainId)
-  const SUBJECT_LOGOS: Record<string, string> = { UNI: "/logos/uniswap.svg", BTC: "/logos/btc.svg", ETH: "/logos/eth.svg", "1INCH": "/logos/1inch.svg" }
+  const SUBJECT_LOGOS: Record<string, string> = { UNI: "/logos/uniswap.svg", BTC: "/logos/btc.svg", ETH: "/logos/eth.svg", "1INCH": "/logos/1inch.svg", TSLA: "/logos/tesla.svg", NVDA: "/logos/nvidia.svg", AAPL: "/logos/apple.svg", MSTR: "/logos/mstr.svg" }
   const subjectFor = (p: any) => {
     const meta = collaterals.find(c => c.pythID.toUpperCase() === (p.subjectToken || "").toUpperCase())
     return meta ? { symbol: meta.symbol, logo: SUBJECT_LOGOS[meta.symbol] } : null
