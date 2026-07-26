@@ -195,17 +195,22 @@ async function runAuctionDemo(proposalAddress, proposalId) {
     // The script: who bids what, when. Max prices are multiples of the LIVE
     // clearing at bid time, so each wave of demand can lift the price for the
     // next — that is what draws a moving chart. YES gets the stronger book.
+    // Calibrated so the final clearings land a believable 2-4x above the
+    // floor on BOTH sides (YES a notch higher), instead of running away by
+    // hundreds. Whales go FIRST — their absolute caps survive the final
+    // clearing, so they always hold claimable tokens for the market phase
+    // even if the auction ends before the tail of the script.
     const script = [
-      { w: 0, side: 'YES', usdc: 3_000, mult: 1.6, wait: 0 },
-      { w: 1, side: 'NO',  usdc: 2_000, mult: 1.4, wait: 3 },
-      { w: 2, side: 'YES', usdc: 4_000, mult: 2.2, wait: 3 },
-      { w: 3, side: 'NO',  usdc: 1_500, mult: 1.8, wait: 4 },
-      { w: 4, side: 'YES', usdc: 2_500, mult: 3.0, wait: 3 },
-      { w: 1, side: 'YES', usdc: 3_500, mult: 4.0, wait: 4 },
-      { w: 3, side: 'YES', usdc: 5_000, mult: 5.0, wait: 3 },
-      { w: 0, side: 'NO',  usdc: 1_000, mult: 2.5, wait: 3 },
-      { w: 2, side: 'NO',  usdc: 2_500, floorMult: 550, wait: 4 },
-      { w: 4, side: 'YES', usdc: 6_000, floorMult: 550, wait: 3 },
+      { w: 4, side: 'YES', usdc: 60, floorMult: 8, wait: 0 },
+      { w: 2, side: 'NO',  usdc: 45, floorMult: 7, wait: 2 },
+      { w: 0, side: 'YES', usdc: 20, mult: 1.5, wait: 3 },
+      { w: 1, side: 'NO',  usdc: 15, mult: 1.4, wait: 3 },
+      { w: 3, side: 'YES', usdc: 25, mult: 1.8, wait: 3 },
+      { w: 1, side: 'YES', usdc: 30, mult: 2.2, wait: 4 },
+      { w: 0, side: 'NO',  usdc: 15, mult: 1.7, wait: 3 },
+      { w: 3, side: 'NO',  usdc: 15, mult: 2.0, wait: 4 },
+      { w: 2, side: 'YES', usdc: 35, mult: 2.6, wait: 3 },
+      { w: 4, side: 'NO',  usdc: 12, mult: 2.3, wait: 3 },
     ];
 
     // The contract prices blocks at 12s but anvil mines every 2s, so a nominal

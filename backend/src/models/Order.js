@@ -70,6 +70,16 @@ const orderSchema = new mongoose.Schema({
   strategyHash: {
     type: String,
     default: null
+  },
+  // Full ISwapVM.Order tuple so takers can fill directly via router.swap
+  aquaOrder: {
+    type: {
+      maker: String,
+      traits: String,
+      data: String
+    },
+    default: null,
+    _id: false
   }
 }, {
   timestamps: true

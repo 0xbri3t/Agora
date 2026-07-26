@@ -8,8 +8,8 @@ import { AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { ProposalHeader } from "@/components/proposal-header"
 import { DemoControls } from "@/components/demo-controls"
+import { PriceDiscoveryStrip } from "@/components/market/price-discovery-strip"
 import { AuctionView } from "@/components/auction-view"
-import { PhaseStepper } from "@/components/phase-stepper"
 import { motion, AnimatePresence } from "motion/react"
 import { MarketView } from "@/components/market-view"
 import { AuctionTradePanel } from "@/components/auction-trade-panel"
@@ -138,9 +138,10 @@ function mapBackendOrderToUserOrder(o: any): UserOrder {
     market: (o.side === "approve" ? "YES" : "NO"),
     type: (o.orderExecution === "market" ? "market" : "limit"),
     side: (o.orderType === "sell" ? "SELL" : "BUY"),
-    price: typeof o.price === "number" ? o.price : Number(o.price ?? o.executedPrice ?? 0),
-    amount: typeof o.amount === "number" ? o.amount : Number(o.amount ?? 0),
-    filled: typeof o.filledAmount === "number" ? o.filledAmount : Number(o.filledAmount ?? 0),
+    // Raw on-chain units -> human (price USDC 6d per 1e18 token, amounts 18d)
+    price: Number(o.price ?? o.executedPrice ?? 0) / 1e6,
+    amount: Number(o.amount ?? 0) / 1e18,
+    filled: Number(o.filledAmount ?? 0) / 1e18,
     status: statusMap[o.status] ?? "pending",
     timestamp: o.createdAt ? new Date(o.createdAt).getTime() : Date.now(),
     strategyHash: o.strategyHash ?? undefined,
@@ -167,8 +168,8 @@ export default function ProposalDetailPage({ params }: PageProps) {
 
   const { dockQuote, isLoading: cancellingOrder } = useAquaQuote()
 
-  // Live public orderbook for selected market
-  const { orders: liveOrderbook, refetch: refetchOrderbook } = useGetOrderbookOrders({ proposalId: id, market: selectedMarket, auto: true, pollMs: 3000 })
+  // Live public orderbook + executed trades for selected market
+  const { orders: liveOrderbook, trades: liveTrades, refetch: refetchOrderbook } = useGetOrderbookOrders({ proposalId: id, market: selectedMarket, auto: true, pollMs: 3000 })
 
   useEffect(() => {
     if (!hookProposal) {
@@ -268,9 +269,13 @@ export default function ProposalDetailPage({ params }: PageProps) {
       </Dialog>
       */}
 
-      <div className="space-y-4">
-        <ProposalHeader proposal={proposal} chainId={chainId} />
-        <PhaseStepper state={(proposal as any).state} />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <ProposalHeader proposal={proposal} chainId={chainId} />
+        </div>
+        <div className="shrink-0 lg:min-w-72">
+          <DemoControls proposalId={id} admin={(proposal as any).admin} />
+        </div>
       </div>
 
       <AnimatePresence mode="wait" initial={false}>
@@ -319,7 +324,6 @@ export default function ProposalDetailPage({ params }: PageProps) {
               />
             </div>
             <div className="lg:col-span-1 space-y-4">
-              <DemoControls proposalId={id} admin={(proposal as any).admin} />
               <CopilotPanel proposalId={id} />
             </div>
           </>
@@ -327,6 +331,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
           (proposal as any).marketData && (
             <>
               <div className="lg:col-span-2">
+                <PriceDiscoveryStrip proposalAddress={(proposal as any).proposalAddress} />
                 <MarketView
                   marketData={(proposal as any).marketData}
                   userOrders={userOrders}
@@ -335,11 +340,11 @@ export default function ProposalDetailPage({ params }: PageProps) {
                   onCancelOrder={handleCancelOrder}
                   userOrdersError={userOrdersError}
                   orderBookEntries={liveOrderbook}
+                  trades={liveTrades}
                   proposalId={proposal.id}
                 />
               </div>
               <div className="lg:col-span-1 space-y-4">
-                <DemoControls proposalId={id} admin={(proposal as any).admin} />
                 <div className="hidden md:block">
                   <MarketPriceHeader proposalId={String(proposal.id)} />
                 </div>

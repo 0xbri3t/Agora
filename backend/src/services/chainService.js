@@ -840,6 +840,30 @@ async function monitorAuctionsToFinalize({ limit = 20 } = {}) {
       settled++;
       console.log(`[settle-auctions] settled: proposal=${addr} tx=${res.hash}`);
       try { await syncProposalByAddress(addr); } catch (_) {}
+      // Seed the market chart with the discovered prices: the auction's final
+      // clearing per side becomes each book's first print, so the Live phase
+      // opens showing the price discovery instead of an empty chart.
+      try {
+        const pc = getContract(addr, PROPOSAL_ABI, false);
+        const [yesAuction, noAuction] = await Promise.all([pc.yesAuction(), pc.noAuction()]);
+        const CCA_MIN_ABI = ['function clearingPrice() view returns (uint256)'];
+        const q96 = 2n ** 96n;
+        const clr6d = async (a) => {
+          const c = await getContract(a, CCA_MIN_ABI, false).clearingPrice();
+          return ((BigInt(c) * 10n ** 18n) / q96).toString();
+        };
+        const [yesPx, noPx] = await Promise.all([clr6d(yesAuction), clr6d(noAuction)]);
+        const PriceHistory = require('../models/PriceHistory');
+        const doc = await require('../models/Proposal').findOne({ proposalAddress: addr });
+        const pid = doc ? String(doc.id) : null;
+        if (pid) {
+          await PriceHistory.create({ proposalId: pid, side: 'approve', price: yesPx, volume: '0', timestamp: new Date() });
+          await PriceHistory.create({ proposalId: pid, side: 'reject', price: noPx, volume: '0', timestamp: new Date() });
+          console.log(`[settle-auctions] price discovery seeded: YES=${yesPx} NO=${noPx}`);
+        }
+      } catch (e) {
+        console.warn(`[settle-auctions] discovery seed failed: ${e.message}`);
+      }
     } else {
       console.warn(`[settle-auctions] fail: proposal=${addr} error=${res.error}`);
     }

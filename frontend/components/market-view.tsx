@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react"
 import { MarketDepthAndOrders } from "@/components/market-depth-orders"
 import { MarketPriceHeader } from "@/components/market-price-header"
-import type { MarketData, MarketOption, OrderBookEntry, UserOrder } from "@/lib/types"
+import type { MarketData, MarketOption, OrderBookEntry, TradeFill, UserOrder } from "@/lib/types"
 import { createChart, LineSeries } from "lightweight-charts"
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
 interface MarketViewProps {
@@ -13,6 +13,7 @@ interface MarketViewProps {
   onCancelOrder: (orderId: string) => void
   userOrdersError?: string | null
   orderBookEntries?: OrderBookEntry[]
+  trades?: TradeFill[]
   proposalId?: string
   // When provided, allows rendering only the chart block or only the orders block for grid alignment
   mode?: 'both' | 'chart' | 'orders'
@@ -30,6 +31,7 @@ export function MarketView({
   onCancelOrder,
   userOrdersError,
   orderBookEntries,
+  trades,
   proposalId,
   mode = 'both',
 }: MarketViewProps) {
@@ -44,6 +46,10 @@ export function MarketView({
   // Local buffers for 1s mode
   const yes1sRef = useRef<LinePoint[]>([])
   const no1sRef = useRef<LinePoint[]>([])
+  // Last non-empty candle series: the rolling window can slide past every
+  // fill, and blanking the chart also drops the price label off the axis.
+  const yesKeepRef = useRef<LinePoint[]>([])
+  const noKeepRef = useRef<LinePoint[]>([])
   useEffect(() => {
     const container = chartContainerRef.current
     if (!container) return
@@ -220,8 +226,9 @@ export function MarketView({
             fetch(`${API_BASE}/orderbooks/${proposalId}/no/top`, { signal: controller.signal }).then(r => r.ok ? r.json().catch(() => null) : null),
           ])
           const calcMid = (json: any): number | undefined => {
-            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) : undefined
-            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) : undefined
+            // /top serves raw USDC 6d prices -> human
+            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) / 1e6 : undefined
+            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) / 1e6 : undefined
             if (bid != null && ask != null) return (bid + ask) / 2
             return bid ?? ask ?? undefined
           }
@@ -242,9 +249,19 @@ export function MarketView({
             resYes.ok ? resYes.json().catch(() => null) : null,
             resNo.ok ? resNo.json().catch(() => null) : null,
           ])
-          const yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
-          const no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
-          const padded = padLines(yes, no)
+          let yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
+          let no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
+          // Keep the last known series when the rolling window goes empty, and
+          // extend the final point to now so the axis price label stays put.
+          if (yes.length) yesKeepRef.current = yes; else yes = yesKeepRef.current
+          if (no.length) noKeepRef.current = no; else no = noKeepRef.current
+          const nowSec = Math.floor(Date.now() / 1000)
+          const extend = (arr: LinePoint[]) => {
+            if (!arr.length) return arr
+            const last = arr[arr.length - 1]
+            return last.time < nowSec ? [...arr, { time: nowSec, value: last.value }] : arr
+          }
+          const padded = padLines(extend(yes), extend(no))
           yesSeries.setData(padded.yes)
           noSeries.setData(padded.no)
           chart.timeScale().fitContent()
@@ -263,8 +280,9 @@ export function MarketView({
             fetch(`${API_BASE}/orderbooks/${proposalId}/no/top`, { signal: controller.signal }).then(r => r.ok ? r.json().catch(() => null) : null),
           ])
           const calcMid = (json: any): number | undefined => {
-            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) : undefined
-            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) : undefined
+            // /top serves raw USDC 6d prices -> human
+            const bid = json?.bestBid?.price != null ? Number(json.bestBid.price) / 1e6 : undefined
+            const ask = json?.bestAsk?.price != null ? Number(json.bestAsk.price) / 1e6 : undefined
             if (bid != null && ask != null) return (bid + ask) / 2
             return bid ?? ask ?? undefined
           }
@@ -298,9 +316,17 @@ export function MarketView({
             resYes.ok ? resYes.json().catch(() => null) : null,
             resNo.ok ? resNo.json().catch(() => null) : null,
           ])
-          const yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
-          const no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
-          const padded = padLines(yes, no)
+          let yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
+          let no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
+          if (yes.length) yesKeepRef.current = yes; else yes = yesKeepRef.current
+          if (no.length) noKeepRef.current = no; else no = noKeepRef.current
+          const nowSec = Math.floor(Date.now() / 1000)
+          const extend = (arr: LinePoint[]) => {
+            if (!arr.length) return arr
+            const last = arr[arr.length - 1]
+            return last.time < nowSec ? [...arr, { time: nowSec, value: last.value }] : arr
+          }
+          const padded = padLines(extend(yes), extend(no))
           yesSeries.setData(padded.yes)
           noSeries.setData(padded.no)
           try { chart.timeScale().scrollToRealTime?.() } catch { }
@@ -389,6 +415,7 @@ export function MarketView({
       compact
       market={selectedMarket}
       orderBook={orderBook}
+      trades={trades}
       userOrders={marketOrders}
       onCancelOrder={onCancelOrder}
       userOrdersError={userOrdersError}

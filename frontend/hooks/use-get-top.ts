@@ -43,7 +43,8 @@ export function useGetTop(options: UseGetTopOptions) {
       const bids: number[] = []
       const asks: number[] = []
       for (const o of orders) {
-        const price = typeof o.price === 'number' ? o.price : Number(o.price || 0)
+        // raw USDC 6d per token -> human
+        const price = Number(o.price || 0) / 1e6
         const orderType = o.orderType || (o.side === 'sell' ? 'sell' : 'buy')
         if (orderType === 'buy') bids.push(price)
         else asks.push(price)
@@ -86,8 +87,9 @@ export function useGetTop(options: UseGetTopOptions) {
         return
       }
       const json = await res.json()
-      const bestBid = json?.bestBid?.price != null ? Number(json.bestBid.price) : undefined
-      const bestAsk = json?.bestAsk?.price != null ? Number(json.bestAsk.price) : undefined
+      // /top serves raw USDC 6d prices -> human
+      const bestBid = json?.bestBid?.price != null ? Number(json.bestBid.price) / 1e6 : undefined
+      const bestAsk = json?.bestAsk?.price != null ? Number(json.bestAsk.price) / 1e6 : undefined
       let mid: number | undefined = undefined
       if (bestBid !== undefined && bestAsk !== undefined) mid = (bestBid + bestAsk) / 2
       else if (bestBid !== undefined) mid = bestBid
@@ -141,13 +143,13 @@ export function useGetTop(options: UseGetTopOptions) {
         if (!payload) return
         // If rooms are set up, we only get our proposal/side, but guard anyway
         if (String(payload.proposalId) !== String(proposalId) || String(payload.side) !== String(side)) return
-        const bestBid = payload?.bestBid?.price != null ? Number(payload.bestBid.price) : undefined
-        const bestAsk = payload?.bestAsk?.price != null ? Number(payload.bestAsk.price) : undefined
+        const bestBid = payload?.bestBid?.price != null ? Number(payload.bestBid.price) / 1e6 : undefined
+        const bestAsk = payload?.bestAsk?.price != null ? Number(payload.bestAsk.price) / 1e6 : undefined
         let mid: number | undefined = undefined
         const midStr = payload?.mid
         if (typeof midStr === 'string') {
           const m = Number(midStr)
-          if (!Number.isNaN(m)) mid = m
+          if (!Number.isNaN(m)) mid = m / 1e6
         }
         if (mid === undefined) {
           if (bestBid !== undefined && bestAsk !== undefined) mid = (bestBid + bestAsk) / 2

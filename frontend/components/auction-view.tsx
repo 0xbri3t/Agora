@@ -551,8 +551,23 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return pct > 100 ? 100 : pct
   }, [raisedNoSide, requiredPerSide, noSupplyForMin, noMinToOpen])
 
+  // The CCA ends by BLOCK number — on a fast-block fork the auction closes
+  // well before its nominal end TIMESTAMP, and a domain stretched to the
+  // nominal end squeezes all the action into a corner. Once the auction is
+  // over, the axis ends where the data ends.
+  const effectiveXEnd = useMemo(() => {
+    if (!startTime || !endTime) return endTime
+    if (proposalState === "Auction") return endTime
+    const lastData = Math.max(
+      yesSeries.length ? yesSeries[yesSeries.length - 1].time : 0,
+      noSeries.length ? noSeries[noSeries.length - 1].time : 0,
+    )
+    return lastData > startTime ? Math.min(endTime, lastData) : endTime
+  }, [startTime, endTime, proposalState, yesSeries, noSeries])
+
   // Precompute X-axis ticks with proportional days/hours granularity and ensure last tick = auction end
   const xTicks = useMemo(() => {
+    const endTime = effectiveXEnd
     if (!startTime || !endTime || endTime <= startTime) return [] as number[]
     const duration = endTime - startTime
     const day = 24 * 60 * 60
@@ -579,7 +594,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     // Ensure we include the exact end time as the final tick
     if (ticks[ticks.length - 1] !== endTime) ticks.push(endTime)
     return ticks
-  }, [startTime, endTime])
+  }, [startTime, effectiveXEnd])
 
   // Build countdown text (e.g., 1d 03:22:10) and fallback when ended
   const countdownText = useMemo(() => {
@@ -691,7 +706,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     dataKey="time"
                     type="number"
                     scale="linear"
-                    domain={startTime && endTime ? [startTime, endTime] : ["auto", "auto"] as any}
+                    domain={startTime && effectiveXEnd ? [startTime, effectiveXEnd] : ["auto", "auto"] as any}
                     ticks={xTicks}
                     tickFormatter={timeTickFormatter}
                     stroke={textColor}
@@ -727,7 +742,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                   {typeof startPrice === "number" && startTime && endTime && (
                     <ReferenceArea
                       x1={startTime}
-                      x2={endTime}
+                      x2={effectiveXEnd}
                       y1={0}
                       y2={startPrice}
                       fill={textColor}

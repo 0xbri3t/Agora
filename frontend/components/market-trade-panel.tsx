@@ -29,8 +29,10 @@ type MarketTradePanelProps = {
 
 type LotOrder = {
   id?: string
-  price: string | number
-  amount: string | number
+  price: string | number // human USDC per token
+  amount: string | number // human token amount
+  priceRaw?: string // USDC 6d per 1e18 token
+  amountRaw?: string // token 18d
   status?: string
   orderType?: string
   strategyHash?: string
@@ -126,9 +128,9 @@ export function MarketTradePanel({ selectedMarket, onMarketChange, proposalId, o
   // ----- BUY (fill a lot) -----
   const handleFillLot = async (lot: LotOrder): Promise<boolean> => {
     if (!marketTokenAddr || !lot.aquaOrder) return false
-    // exact lot cost: price (USDC 6d per 1e18) * amount (18d) / 1e18
-    const price6d = BigInt(Math.round(Number(lot.price)))
-    const amount18 = BigInt(lot.amount.toString())
+    // exact lot cost: price (USDC 6d per 1e18) * amount (18d) / 1e18 — raw on-chain units
+    const price6d = BigInt(lot.priceRaw || '0')
+    const amount18 = BigInt(lot.amountRaw || '0')
     const lotUsdc = (price6d * amount18) / 10n ** 18n
 
     const out = await fillLot({ order: lot.aquaOrder, outcomeToken: marketTokenAddr, lotUsdc })
@@ -307,10 +309,8 @@ export function MarketTradePanel({ selectedMarket, onMarketChange, proposalId, o
                 ) : (
                   <div className="space-y-2">
                     {askLots.map((lot, i) => {
-                      const price6d = Number(lot.price)
-                      const amount18 = BigInt(lot.amount.toString())
-                      const priceHuman = price6d / 1e6
-                      const sizeHuman = Number(formatUnits(amount18, 18))
+                      const priceHuman = Number(lot.price)
+                      const sizeHuman = Number(lot.amount)
                       const costHuman = priceHuman * sizeHuman
                       const cantAfford = parseUnits(costHuman.toFixed(6), 6) > (usdcBalance || 0n)
                       return (
