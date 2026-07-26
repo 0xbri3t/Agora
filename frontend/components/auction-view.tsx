@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { ComposedChart, Line, Area, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot, ReferenceLine, ReferenceArea } from "recharts"
+import { ComposedChart, Line, Area, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceArea } from "recharts"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AuctionData, UserBalance } from "@/lib/types"
 import { formatUnits } from "viem"
@@ -29,13 +29,14 @@ interface AuctionViewProps {
   fullHeight?: boolean
 }
 
+// Current-price marker: solid dot with a soft static halo — no pulse
 const AnimatedDot = (props: any) => {
   const { cx, cy, color } = props
   return (
     <g>
-      <circle cx={cx} cy={cy} r={8} fill={color} className="animate-pulse" opacity={0.6} />
-      <circle cx={cx} cy={cy} r={5} fill={color} />
-      <circle cx={cx} cy={cy} r={2} fill="hsl(var(--background))" />
+      <circle cx={cx} cy={cy} r={7} fill={color} opacity={0.25} />
+      <circle cx={cx} cy={cy} r={4} fill={color} />
+      <circle cx={cx} cy={cy} r={1.5} fill="var(--card)" />
     </g>
   )
 }
@@ -350,7 +351,10 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       ...yesBidMarks.map(b => b.price),
       ...noBidMarks.map(b => b.price),
     )
-    return peak > 0 ? peak * 1.15 : 1
+    if (peak <= 0) return 1
+    // Keep the floor low in the frame: while clearing sits at the floor, give
+    // the axis 3x headroom so the floor line reads as a floor, not a ceiling.
+    return Math.max(peak * 1.15, (startPrice ?? 0) * 3)
   }, [startPrice, yesPriceNow, noPriceNow, yesHistory, noHistory, yesBidMarks, noBidMarks])
 
   // --- Issuance: the contract releases supply evenly per block, so released
@@ -630,12 +634,11 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     borderRadius: "4px",
     color: "#000000",
   }
-  const seriesDot = (color: string) => (dotProps: any) => {
-    if (dotProps.payload.isCurrent) {
-      return <AnimatedDot {...dotProps} color={color} key={`animated-${dotProps.index}`} />
-    }
-    return <Dot {...dotProps} r={0} key={`dot-${dotProps.index}`} />
-  }
+  // Current-price points rendered as their own static scatter layer: putting
+  // them inside the animated <Line dot={...}> makes them re-animate (blink) on
+  // every 1s data tick.
+  const yesCurrentPt = useMemo(() => yesSeries.filter((p) => p.isCurrent), [yesSeries])
+  const noCurrentPt = useMemo(() => noSeries.filter((p) => p.isCurrent), [noSeries])
 
   // A bid drawn as an event marker on the baseline: a small triangle at the
   // moment it landed, colored by side. Uniform size — the budgets live in the
@@ -774,7 +777,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     dataKey="price"
                     stroke={YES_COLOR}
                     strokeWidth={2}
-                    dot={seriesDot(YES_COLOR)}
+                    dot={false}
                     isAnimationActive
                     animationDuration={450}
                     animationEasing="ease-out"
@@ -786,11 +789,14 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     dataKey="price"
                     stroke={NO_COLOR}
                     strokeWidth={2}
-                    dot={seriesDot(NO_COLOR)}
+                    dot={false}
                     isAnimationActive
                     animationDuration={450}
                     animationEasing="ease-out"
                   />
+                  {/* Live price markers — static layer, never re-animates */}
+                  <Scatter data={yesCurrentPt} name="YES now" dataKey="price" shape={(p: any) => <AnimatedDot {...p} color={YES_COLOR} />} isAnimationActive={false} />
+                  <Scatter data={noCurrentPt} name="NO now" dataKey="price" shape={(p: any) => <AnimatedDot {...p} color={NO_COLOR} />} isAnimationActive={false} />
                   {/* Bid events: uniform triangles on the baseline at the moment
                       each bid landed, colored by side. Hover for the details. */}
                   <Scatter data={yesBidMarks.map((m) => ({ ...m, yBase: 0 }))} name="YES bid" dataKey="yBase" shape={bidMarker(YES_COLOR)} isAnimationActive={false} />
@@ -893,14 +899,12 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         {/* YES Token Card */}
         <Card className="border-primary/30 bg-primary/5">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-primary">tYES</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg text-primary">tYES</CardTitle>
+              <span className="text-2xl font-bold text-primary"><RollingNumber value={yesPriceNow} decimals={2} fontSize={24} prefix="$" /></span>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground mb-1">Current Price</p>
-              <p className="text-3xl font-bold text-primary"><RollingNumber value={yesPriceNow} decimals={2} fontSize={30} prefix="$" /></p>
-            </div>
-
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Remaining Mintable</span>
@@ -930,14 +934,12 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         {/* NO Token Card */}
         <Card className="border-destructive/30 bg-destructive/5">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-destructive">tNO</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg text-destructive">tNO</CardTitle>
+              <span className="text-2xl font-bold text-destructive"><RollingNumber value={noPriceNow} decimals={2} fontSize={24} prefix="$" /></span>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground mb-1">Current Price</p>
-              <p className="text-3xl font-bold text-destructive"><RollingNumber value={noPriceNow} decimals={2} fontSize={30} prefix="$" /></p>
-            </div>
-
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Remaining Mintable</span>

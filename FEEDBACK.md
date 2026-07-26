@@ -47,9 +47,9 @@ added (`DutchAuction.sol` is gone, ~900 lines removed).
 
 ## Friction we hit (ordered by impact)
 
-1. **The docs list a controller/factory reality gap** *(ENS-adjacent but same
-   pattern to watch)* — more relevantly for CCA: the docs describe the system
-   well but the constraints that actually bite are only in the code:
+1. **The constraints that actually bite live only in the code.** The docs
+   describe the system well at a conceptual level, but the invariants an
+   integrator trips on are undocumented:
    - `floorPrice` must be an exact multiple of `tickSpacing`
      (`TickPriceNotAtBoundary`). Nothing in the overview mentions it; we found
      it by decoding a custom error selector against the repo.

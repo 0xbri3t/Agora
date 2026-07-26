@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/stateful-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { Info } from "lucide-react"
 import { useAccount, useConfig, usePublicClient } from "wagmi"
 import { toast } from "sonner"
 import type { MarketOption, AuctionData } from "@/lib/types"
@@ -355,15 +357,22 @@ export function AuctionTradePanel({ auctionData, isFailed, proposalAddress, full
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Estimated Tokens:</span>
+              <span className="flex items-center gap-1 text-muted-foreground">
+                Estimated Tokens:
+                <HoverCard openDelay={100}>
+                  <HoverCardTrigger asChild>
+                    <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground/70 hover:text-foreground" />
+                  </HoverCardTrigger>
+                  <HoverCardContent side="top" className="w-72 text-xs leading-relaxed">
+                    Uniform-price auction: you commit a USDC budget capped at your
+                    max price (blank = 2× current). The max only bounds
+                    participation — everyone pays the same final clearing price at
+                    close, and your exact tokens are claimed after settlement.
+                  </HoverCardContent>
+                </HoverCard>
+              </span>
               <span className="font-mono">{Number(estimatedTokens).toFixed(6)}</span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Uniform-price auction: you commit a USDC budget capped at your max
-              price (blank = 2× current). The max only bounds participation —
-              everyone pays the same final clearing price at close, and your
-              exact tokens are claimed after settlement.
-            </p>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Your t{selectedMarket} Balance:</span>
               <span className="font-mono">{(Number((userTokenBalance) ?? 0n) / 1e18).toFixed(6)}</span>

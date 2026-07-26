@@ -223,33 +223,52 @@ async function runAuctionDemo(proposalAddress, proposalId) {
     const pace = Math.min(1, (realSecondsLeft * 0.6) / Math.max(1, scriptSeconds));
     log(run, `~${realSecondsLeft}s of auction left — pacing bids at ${(pace * 100).toFixed(0)}%`);
 
+    let placedCount = 0;
     for (const step of script) {
       await sleep(step.wait * pace * 1000);
       const auctionAddr = step.side === 'YES' ? yesAuction : noAuction;
       const auction = new ethers.Contract(auctionAddr, CCA_ABI, wallets[step.w]);
       const ro = new ethers.Contract(auctionAddr, CCA_ABI, provider);
 
-      const [nowBlock, endBlock] = await Promise.all([provider.getBlockNumber(), ro.endBlock()]);
-      if (BigInt(nowBlock) >= endBlock) { finish('auction ended — stopping bid script'); return; }
-
-      const [clearing, tick, floorPx] = await Promise.all([ro.clearingPrice(), ro.tickSpacing(), ro.floorPrice()]);
-      // mult rides the live clearing (these bids end up outbid — refund
-      // material); floorMult sets an absolute whale cap high enough that
-      // demand at that price stays under supply, so the whale survives the
-      // final clearing and exits cleanly with tokens for the market phase.
-      const rawMax = step.floorMult
-        ? floorPx * BigInt(step.floorMult)
-        : (clearing * BigInt(Math.round(step.mult * 100))) / 100n;
-      let maxQ96 = (rawMax / tick) * tick;
-      if (maxQ96 <= clearing) maxQ96 = (clearing / tick) * tick + tick;
-
       const budget = BigInt(step.usdc) * 10n ** 6n;
       const addr = await wallets[step.w].getAddress();
-      await waitTx(auction.submitBid(maxQ96, budget, addr, '0x', feeJitter()), wallets[step.w]);
-      const px = Number((clearing * 10n ** 18n) / Q96) / 1e6;
-      log(run, `${addr.slice(0, 8)} bid ${step.usdc} USDC on ${step.side} (max ${step.floorMult ? step.floorMult + 'x floor' : step.mult + 'x'}, clearing was $${px.toFixed(2)})`);
+
+      // On 2s fork blocks the clearing can SPIKE between a read and the send
+      // (a whale bid against thin released supply), and the CCA rejects any
+      // max at or below the live clearing. So: re-read fresh on every attempt,
+      // keep a margin above the live clearing, and never let one rejected bid
+      // kill the whole script.
+      let placed = false;
+      for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+        const [nowBlock, endBlock] = await Promise.all([provider.getBlockNumber(), ro.endBlock()]);
+        if (BigInt(nowBlock) >= endBlock) {
+          finish(`auction ended — ${placedCount} bids placed before the close`);
+          return;
+        }
+        const [clearing, tick, floorPx] = await Promise.all([ro.clearingPrice(), ro.tickSpacing(), ro.floorPrice()]);
+        // mult rides the live clearing (these bids end up outbid — refund
+        // material); floorMult sets an absolute whale cap high enough that
+        // demand at that price stays under supply, so the whale survives the
+        // final clearing and exits cleanly with tokens for the market phase.
+        const rawMax = step.floorMult
+          ? floorPx * BigInt(step.floorMult)
+          : (clearing * BigInt(Math.round(step.mult * 100))) / 100n;
+        let maxQ96 = (rawMax / tick) * tick;
+        if (maxQ96 <= clearing) maxQ96 = (clearing / tick) * tick + 2n * tick;
+        try {
+          await waitTx(auction.submitBid(maxQ96, budget, addr, '0x', feeJitter()), wallets[step.w]);
+          const px = Number((clearing * 10n ** 18n) / Q96) / 1e6;
+          log(run, `${addr.slice(0, 8)} bid ${step.usdc} USDC on ${step.side} (max ${step.floorMult ? step.floorMult + 'x floor' : step.mult + 'x'}, clearing was $${px.toFixed(2)})`);
+          placed = true;
+          placedCount++;
+        } catch (e) {
+          log(run, `${addr.slice(0, 8)} ${step.side} bid rejected (attempt ${attempt + 1}/3, ${(e.shortMessage || e.message || '').slice(0, 60)}) — retrying…`);
+          await sleep(2500);
+        }
+      }
+      if (!placed) log(run, `wallet ${step.w} ${step.side} bid skipped after 3 attempts`);
     }
-    finish('auction script done — 10 bids placed across both sides');
+    finish(`auction script done — ${placedCount} bids placed across both sides`);
   } catch (e) {
     finish(`error: ${e.message}`);
   }
@@ -367,6 +386,7 @@ async function runMarketDemo(proposalAddress, proposalId) {
       { maker: 4, taker: 3, side: 'YES', qty: 2.0, px: 1.30, wait: 4 },
     ];
 
+    let filled = 0;
     for (const step of script) {
       await sleep(step.wait * 1000);
       const outcomeToken = step.side === 'YES' ? yesToken : noToken;
@@ -383,13 +403,19 @@ async function runMarketDemo(proposalAddress, proposalId) {
       const bal = await new ethers.Contract(outcomeToken, ERC20_ABI, provider).balanceOf(makerAddr);
       if (bal < lotToken) { log(run, `${makerAddr.slice(0, 8)} lacks ${step.side} tokens for a ${step.qty} lot — skipped`); continue; }
 
-      const salt = BigInt(Date.now()) * 1000n + BigInt(step.maker);
-      const shipped = await aquaClient.shipQuote({ makerWallet: makerW, outcomeToken, lotUsdc, lotToken, salt, cfg });
-      await sleep(800);
-      await aquaClient.fillQuote({ takerWallet: takerW, order: shipped.order, lotUsdc, outcomeToken, cfg });
-      log(run, `${makerAddr.slice(0, 8)} sold ${step.qty} ${step.side} @ $${price.toFixed(2)} → filled by ${takerAddr.slice(0, 8)}`);
+      // One failed lot must not end the session — log it and keep trading.
+      try {
+        const salt = BigInt(Date.now()) * 1000n + BigInt(step.maker);
+        const shipped = await aquaClient.shipQuote({ makerWallet: makerW, outcomeToken, lotUsdc, lotToken, salt, cfg });
+        await sleep(800);
+        await aquaClient.fillQuote({ takerWallet: takerW, order: shipped.order, lotUsdc, outcomeToken, cfg });
+        log(run, `${makerAddr.slice(0, 8)} sold ${step.qty} ${step.side} @ $${price.toFixed(2)} → filled by ${takerAddr.slice(0, 8)}`);
+        filled++;
+      } catch (e) {
+        log(run, `${step.side} lot by ${makerAddr.slice(0, 8)} failed (${(e.shortMessage || e.message || '').slice(0, 80)}) — continuing`);
+      }
     }
-    finish('market script done — trades printed on both books');
+    finish(`market script done — ${filled} trades printed across both books`);
   } catch (e) {
     finish(`error: ${e.message}`);
   }
