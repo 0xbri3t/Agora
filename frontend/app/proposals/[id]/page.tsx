@@ -8,6 +8,7 @@ import { AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { ProposalHeader } from "@/components/proposal-header"
 import { DemoControls } from "@/components/demo-controls"
+import { PriceDiscoveryStrip } from "@/components/market/price-discovery-strip"
 import { AuctionView } from "@/components/auction-view"
 import { PhaseStepper } from "@/components/phase-stepper"
 import { motion, AnimatePresence } from "motion/react"
@@ -327,6 +328,7 @@ export default function ProposalDetailPage({ params }: PageProps) {
           (proposal as any).marketData && (
             <>
               <div className="lg:col-span-2">
+                <PriceDiscoveryStrip proposalAddress={(proposal as any).proposalAddress} />
                 <MarketView
                   marketData={(proposal as any).marketData}
                   userOrders={userOrders}

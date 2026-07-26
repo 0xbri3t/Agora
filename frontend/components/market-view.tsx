@@ -44,6 +44,10 @@ export function MarketView({
   // Local buffers for 1s mode
   const yes1sRef = useRef<LinePoint[]>([])
   const no1sRef = useRef<LinePoint[]>([])
+  // Last non-empty candle series: the rolling window can slide past every
+  // fill, and blanking the chart also drops the price label off the axis.
+  const yesKeepRef = useRef<LinePoint[]>([])
+  const noKeepRef = useRef<LinePoint[]>([])
   useEffect(() => {
     const container = chartContainerRef.current
     if (!container) return
@@ -242,9 +246,19 @@ export function MarketView({
             resYes.ok ? resYes.json().catch(() => null) : null,
             resNo.ok ? resNo.json().catch(() => null) : null,
           ])
-          const yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
-          const no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
-          const padded = padLines(yes, no)
+          let yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
+          let no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
+          // Keep the last known series when the rolling window goes empty, and
+          // extend the final point to now so the axis price label stays put.
+          if (yes.length) yesKeepRef.current = yes; else yes = yesKeepRef.current
+          if (no.length) noKeepRef.current = no; else no = noKeepRef.current
+          const nowSec = Math.floor(Date.now() / 1000)
+          const extend = (arr: LinePoint[]) => {
+            if (!arr.length) return arr
+            const last = arr[arr.length - 1]
+            return last.time < nowSec ? [...arr, { time: nowSec, value: last.value }] : arr
+          }
+          const padded = padLines(extend(yes), extend(no))
           yesSeries.setData(padded.yes)
           noSeries.setData(padded.no)
           chart.timeScale().fitContent()
@@ -298,9 +312,17 @@ export function MarketView({
             resYes.ok ? resYes.json().catch(() => null) : null,
             resNo.ok ? resNo.json().catch(() => null) : null,
           ])
-          const yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
-          const no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
-          const padded = padLines(yes, no)
+          let yes = Array.isArray(jsonYes?.candles) ? mapLine(jsonYes.candles) : []
+          let no = Array.isArray(jsonNo?.candles) ? mapLine(jsonNo.candles) : []
+          if (yes.length) yesKeepRef.current = yes; else yes = yesKeepRef.current
+          if (no.length) noKeepRef.current = no; else no = noKeepRef.current
+          const nowSec = Math.floor(Date.now() / 1000)
+          const extend = (arr: LinePoint[]) => {
+            if (!arr.length) return arr
+            const last = arr[arr.length - 1]
+            return last.time < nowSec ? [...arr, { time: nowSec, value: last.value }] : arr
+          }
+          const padded = padLines(extend(yes), extend(no))
           yesSeries.setData(padded.yes)
           noSeries.setData(padded.no)
           try { chart.timeScale().scrollToRealTime?.() } catch { }
