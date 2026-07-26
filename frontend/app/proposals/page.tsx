@@ -19,6 +19,12 @@ import { ConnectWalletButton } from "@/components/wallet-button"
 import { useCreateOrder } from "@/hooks/use-mintPublic"
 import { useDeleteProposal } from "@/hooks/use-delete-proposal"
 import { useToast } from "@/hooks/use-toast"
+import { useConfig } from "wagmi"
+import { useRouter } from "next/navigation"
+import { Play } from "lucide-react"
+import { createDemoProposal } from "@/lib/demo-proposal"
+
+const IS_FORK = process.env.NEXT_PUBLIC_OPENFORT_LOCAL === "1"
 
 
 const statusStyles = {
@@ -85,6 +91,26 @@ export default function ProposalsPage() {
   }
   const { deleteProposal, pending, error: deleteError } = useDeleteProposal()
   const { toast } = useToast()
+  const wagmiConfig = useConfig()
+  const router = useRouter()
+  const [demoPending, setDemoPending] = useState(false)
+
+  // Fork-only: creates the one hardcoded, calibrated demo proposal so every
+  // demo run starts from identical parameters. Creator becomes admin, so the
+  // demo director buttons appear on the new proposal's page.
+  const handleDemoProposal = async () => {
+    setDemoPending(true)
+    try {
+      const id = await createDemoProposal(wagmiConfig, chainId)
+      toast({ title: "Demo proposal created", description: `Proposal #${id} — calibrated for the demo director.` })
+      try { refetch?.() } catch {}
+      router.push(`/proposals/${id}`)
+    } catch (e: any) {
+      toast({ title: "Demo proposal failed", description: e?.shortMessage || e?.message || String(e), variant: "destructive" })
+    } finally {
+      setDemoPending(false)
+    }
+  }
 
   // Always fetch proposals on-chain via hook (works with or without a connected wallet)
 
@@ -207,6 +233,12 @@ export default function ProposalsPage() {
               </Button>
             </div>
           ) : null}
+          {IS_FORK && isConnected && (
+            <Button size="lg" variant="outline" className="w-full sm:w-auto" onClick={handleDemoProposal} disabled={demoPending}>
+              {demoPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />}
+              {demoPending ? "Creating…" : "Demo proposal"}
+            </Button>
+          )}
           <Button asChild size="lg" variant="default" className="w-full sm:w-auto">
             <Link href="/proposals/new">
               <Plus className="mr-2 h-5 w-5" />
