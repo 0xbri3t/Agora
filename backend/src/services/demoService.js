@@ -214,7 +214,7 @@ async function runAuctionDemo(proposalAddress, proposalId) {
     const scale = Math.max(1, floor6d / 0.36);
     if (scale > 1.5) log(run, `subject floor $${floor6d.toFixed(2)} — scaling bid budgets x${scale.toFixed(0)}`);
 
-    await ensureUsdc(run, wallets, BigInt(Math.ceil(500 * scale)) * 10n ** 6n);
+    await ensureUsdc(run, wallets, usdcAddr, BigInt(Math.ceil(500 * scale)) * 10n ** 6n);
 
     // One-time approvals: USDC -> Permit2, Permit2 -> each auction
     for (const w of wallets) {
