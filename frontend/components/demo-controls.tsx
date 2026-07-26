@@ -20,6 +20,7 @@ const clip = (s: string, n = 160) => (s.length > n ? s.slice(0, n) + "…" : s)
 export function DemoControls({ proposalId, admin }: { proposalId: string; admin?: string }) {
   const { address } = useAccount()
   const [status, setStatus] = useState<{ auction: RunState; market: RunState } | null>(null)
+  const [skipping, setSkipping] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const isAdmin = !!address && !!admin && address.toLowerCase() === admin.toLowerCase()
@@ -52,8 +53,6 @@ export function DemoControls({ proposalId, admin }: { proposalId: string; admin?
       toast.error("Demo failed to start", { description: clip(String(e?.message ?? e)) })
     }
   }
-
-  const [skipping, setSkipping] = useState(false)
 
   // Jumps the chain past the current phase: auction → mines to the end block
   // and settles; live → warps past liveEnd and resolves.
