@@ -59,13 +59,12 @@ export function AuctionResolved({
   // ±10% of the winning forecast (protocol width parameter), so the axis
   // stays in the price neighborhood that settlement actually pays.
   const wing = Math.max(winningPrice * 0.1, 0.01)
-  const butterflyData = [
-    { price: winningPrice - wing * 1.4, payoff: 0 },
-    { price: winningPrice - wing, payoff: 0 },
-    { price: winningPrice, payoff: 1 },
-    { price: winningPrice + wing, payoff: 0 },
-    { price: winningPrice + wing * 1.4, payoff: 0 },
-  ]
+  // Dense sampling so the tooltip tracks the whole slope, not just vertices.
+  const butterflyData = Array.from({ length: 61 }, (_, i) => {
+    const price = winningPrice - wing * 1.4 + (i * wing * 2.8) / 60
+    const payoff = Math.max(0, 1 - Math.abs(price - winningPrice) / wing)
+    return { price, payoff }
+  })
 
   return (
     <div className="space-y-6">
@@ -114,9 +113,9 @@ export function AuctionResolved({
           <CardHeader>
             <CardTitle>Butterfly settlement</CardTitle>
             <CardDescription>
-              Winner tokens settle as butterfly options. The x-axis is the asset&apos;s
-              possible spot price at expiry: payout peaks if it lands exactly on the
-              winning forecast of ${fmt(winningPrice)} and fades to zero ±10% away.
+              The market predicted ${fmt(winningPrice)}. If reality lands exactly
+              there, winners earn the maximum — the further off it lands, the
+              smaller the payout. Hover the curve to see it.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -155,7 +154,8 @@ export function AuctionResolved({
                       color: "#fff",
                     }}
                     formatter={(value: number) => [`${Math.round(value * 100)}% of max payout`, ""]}
-                    labelFormatter={(label: number) => `spot $${fmt(Number(label))}`}
+                    labelFormatter={(label: number) => `spot price $${fmt(Number(label))}`}
+                    cursor={{ stroke: "rgba(255,255,255,0.25)", strokeDasharray: "3 3" }}
                   />
                   <ReferenceLine
                     x={winningPrice}
