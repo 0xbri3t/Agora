@@ -16,6 +16,7 @@ import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { cca_abi, q96ToPrice6d } from "@/contracts/cca-abi"
 import { treasury_abi } from "@/contracts/treasury-abi"
 import { ProposalStatus } from "@/lib/types"
+import { RollingNumber } from "@/components/ui/rolling-number"
 
 
 interface AuctionViewProps {
@@ -90,9 +91,6 @@ function formatDateTime(timestamp: number | bigint | undefined): string {
   const ms = tsNum > 1e12 ? tsNum : tsNum * 1000
   return new Date(ms).toLocaleString()
 }
-
-// Helper to pad time units (e.g., 3 -> 03)
-function pad2(n: number) { return n.toString().padStart(2, '0') }
 
 // Price formatting helpers to keep big labels from breaking
 function formatPriceShort(value: number): string {
@@ -315,8 +313,21 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return () => { clearInterval(id); window.removeEventListener("auction:tx", onTx) }
   }, [fetchAuctionActivity])
 
+  // Live clock: tick every second (offset-corrected to the chain) so the
+  // current price point and the released-supply line crawl smoothly between
+  // polls instead of jumping every 3s.
+  const chainDriftRef = useRef(0)
+  useEffect(() => {
+    if (typeof blockTimestamp === "number") chainDriftRef.current = blockTimestamp - Math.floor(Date.now() / 1000)
+  }, [blockTimestamp])
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000) + chainDriftRef.current), 1000)
+    return () => clearInterval(id)
+  }, [])
+
   // Step series per market: floor anchor -> logged clearing updates -> live point.
-  const now = (typeof blockTimestamp === 'number' ? blockTimestamp : Math.floor(Date.now() / 1000))
+  const now = nowSec
   const buildSeries = useCallback((history: PricePoint[], priceNow: number): PricePoint[] => {
     if (!startPrice || !startTime) return []
     const pts: PricePoint[] = [{ time: startTime, price: startPrice, isCurrent: false }, ...history]
@@ -596,14 +607,6 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     return ticks
   }, [startTime, effectiveXEnd])
 
-  // Build countdown text (e.g., 1d 03:22:10) and fallback when ended
-  const countdownText = useMemo(() => {
-    const total = timeLeft.days + timeLeft.hours + timeLeft.minutes + timeLeft.seconds
-    if (total <= 0) return "Ended"
-    const d = timeLeft.days > 0 ? `${timeLeft.days}d ` : ""
-    return `${d}${pad2(timeLeft.hours)}:${pad2(timeLeft.minutes)}:${pad2(timeLeft.seconds)}`
-  }, [timeLeft])
-
   const YES_COLOR = "var(--data-up)"
   const NO_COLOR = "var(--destructive)"
 
@@ -667,7 +670,20 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
             {proposalState !== "Cancelled" && (
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <span title={formatDateTime(effectiveEndTime)}>{countdownText}</span>
+                <span title={formatDateTime(effectiveEndTime)} className="font-mono tabular-nums">
+                  {timeLeft.days + timeLeft.hours + timeLeft.minutes + timeLeft.seconds <= 0 ? (
+                    "Ended"
+                  ) : (
+                    <span className="inline-flex items-center">
+                      {timeLeft.days > 0 && <span>{timeLeft.days}d&nbsp;</span>}
+                      <RollingNumber value={timeLeft.hours} padTo={2} fontSize={14} />
+                      <span>:</span>
+                      <RollingNumber value={timeLeft.minutes} padTo={2} fontSize={14} />
+                      <span>:</span>
+                      <RollingNumber value={timeLeft.seconds} padTo={2} fontSize={14} />
+                    </span>
+                  )}
+                </span>
               </div>
             )}
             <Badge variant={isSuccessful ? "default" : "secondary"} className={proposalState === "Cancelled" ?  "bg-red-500/10 text-red-600 border-red-500/20" : "bg-primary/10 text-primary border-primary/20" }>
@@ -678,12 +694,12 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         {supplyTokens > 0 && (
           <div className="mt-2 space-y-1.5">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span className="font-mono tabular-nums text-foreground">
-                {releasedTokens.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                <span className="text-muted-foreground"> / {supplyTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} tokens released</span>
+              <span className="inline-flex items-center font-mono tabular-nums text-foreground">
+                <RollingNumber value={releasedTokens} decimals={2} fontSize={12} />
+                <span className="text-muted-foreground">&nbsp;/ {supplyTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })} tokens released</span>
               </span>
-              <span className="font-mono tabular-nums">{releasedPct.toFixed(1)}%</span>
-              <span className="font-mono tabular-nums">{releasePerMin.toLocaleString(undefined, { maximumFractionDigits: 2 })} tok/min</span>
+              <span className="font-mono tabular-nums"><RollingNumber value={releasedPct} decimals={1} fontSize={12} suffix="%" /></span>
+              <span className="inline-flex items-center font-mono tabular-nums"><RollingNumber value={releasePerMin} decimals={2} fontSize={12} />&nbsp;tok/min</span>
               <span className="hidden sm:inline">· even per-block issuance</span>
             </div>
             <Progress value={releasedPct} className="h-1.5" />
@@ -759,7 +775,9 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     stroke={YES_COLOR}
                     strokeWidth={2}
                     dot={seriesDot(YES_COLOR)}
-                    isAnimationActive={false}
+                    isAnimationActive
+                    animationDuration={450}
+                    animationEasing="ease-out"
                   />
                   <Line
                     data={noSeries}
@@ -769,7 +787,9 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                     stroke={NO_COLOR}
                     strokeWidth={2}
                     dot={seriesDot(NO_COLOR)}
-                    isAnimationActive={false}
+                    isAnimationActive
+                    animationDuration={450}
+                    animationEasing="ease-out"
                   />
                   {/* Bid events: uniform triangles on the baseline at the moment
                       each bid landed, colored by side. Hover for the details. */}
@@ -856,8 +876,8 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
                         </>
                       )
                     })()}
-                    <Area data={yesTokenDemand} name="YES demand" type="stepAfter" dataKey="tokens" stroke={YES_COLOR} strokeWidth={2} fill={YES_COLOR} fillOpacity={0.1} dot={false} isAnimationActive={false} />
-                    <Area data={noTokenDemand} name="NO demand" type="stepAfter" dataKey="tokens" stroke={NO_COLOR} strokeWidth={2} fill={NO_COLOR} fillOpacity={0.1} dot={false} isAnimationActive={false} />
+                    <Area data={yesTokenDemand} name="YES demand" type="stepAfter" dataKey="tokens" stroke={YES_COLOR} strokeWidth={2} fill={YES_COLOR} fillOpacity={0.1} dot={false} isAnimationActive animationDuration={450} animationEasing="ease-out" />
+                    <Area data={noTokenDemand} name="NO demand" type="stepAfter" dataKey="tokens" stroke={NO_COLOR} strokeWidth={2} fill={NO_COLOR} fillOpacity={0.1} dot={false} isAnimationActive animationDuration={450} animationEasing="ease-out" />
                   </ComposedChart>
                 </ResponsiveContainer>
               )}
@@ -878,13 +898,13 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
           <CardContent className="space-y-4">
             <div>
               <p className="text-sm text-muted-foreground mb-1">Current Price</p>
-              <p className="text-3xl font-bold text-primary">${yesPriceNow.toFixed(2)}</p>
+              <p className="text-3xl font-bold text-primary"><RollingNumber value={yesPriceNow} decimals={2} fontSize={30} prefix="$" /></p>
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Remaining Mintable</span>
-                <span className="font-mono text-foreground">{(Number((yesRemaining) / BigInt(1e18)).toFixed(6))}</span>
+                <span className="font-mono text-foreground"><RollingNumber value={Number(yesRemaining) / 1e18} decimals={2} fontSize={14} /></span>
               </div>
               <Progress value={yesRemainingPercent} className="h-2 bg-primary/20" />
               <p className="text-xs text-muted-foreground text-right">{yesRemainingPercent.toFixed(1)}% remaining</p>
@@ -894,7 +914,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Quorum</span>
-                <span className="font-mono text-foreground">{yesMinProgressPercent.toFixed(1)}%</span>
+                <span className="font-mono text-foreground"><RollingNumber value={yesMinProgressPercent} decimals={1} fontSize={14} suffix="%" /></span>
               </div>
               <Progress value={yesMinProgressPercent} className="h-2 bg-primary/20" />
               <p className="text-xs text-muted-foreground text-right">{yesMinProgressPercent.toFixed(1)}% of minimum</p>
@@ -902,7 +922,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
 
             <div className="pt-2 border-t border-primary/20">
               <p className="text-xs text-muted-foreground mb-1">Your Balance</p>
-              <p className="font-mono text-lg text-foreground">{(Number((yesBalOverride ?? yesUserBal) ?? 0n) / 1e18).toFixed(6)}</p>
+              <p className="font-mono text-lg text-foreground"><RollingNumber value={Number((yesBalOverride ?? yesUserBal) ?? 0n) / 1e18} decimals={4} fontSize={18} /></p>
             </div>
           </CardContent>
         </Card>
@@ -915,13 +935,13 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
           <CardContent className="space-y-4">
             <div>
               <p className="text-sm text-muted-foreground mb-1">Current Price</p>
-              <p className="text-3xl font-bold text-destructive">${noPriceNow.toFixed(2)}</p>
+              <p className="text-3xl font-bold text-destructive"><RollingNumber value={noPriceNow} decimals={2} fontSize={30} prefix="$" /></p>
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Remaining Mintable</span>
-                <span className="font-mono text-foreground">{(Number((noRemaining) / BigInt(1e18)).toFixed(6))}</span>
+                <span className="font-mono text-foreground"><RollingNumber value={Number(noRemaining) / 1e18} decimals={2} fontSize={14} /></span>
               </div>
               <Progress value={noRemainingPercent} className="h-2 bg-destructive/20 [&>div]:bg-destructive" />
               <p className="text-xs text-muted-foreground text-right">{noRemainingPercent.toFixed(1)}% remaining</p>
@@ -931,7 +951,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Quorum</span>
-                <span className="font-mono text-foreground">{noMinProgressPercent.toFixed(1)}%</span>
+                <span className="font-mono text-foreground"><RollingNumber value={noMinProgressPercent} decimals={1} fontSize={14} suffix="%" /></span>
               </div>
               <Progress value={noMinProgressPercent} className="h-2 bg-destructive/20 [&>div]:bg-destructive" />
               <p className="text-xs text-muted-foreground text-right">{noMinProgressPercent.toFixed(1)}% of minimum</p>
@@ -940,7 +960,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
             <div className="pt-2 border-t border-destructive/20">
               <p className="text-xs text-muted-foreground mb-1">Your Balance</p>
               <p className="font-mono text-lg text-foreground">
-                {(Number((noBalOverride ?? noUserBal) ?? 0n) / 1e18).toFixed(6)}
+                <RollingNumber value={Number((noBalOverride ?? noUserBal) ?? 0n) / 1e18} decimals={4} fontSize={18} />
               </p>
             </div>
           </CardContent>
