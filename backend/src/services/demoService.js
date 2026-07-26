@@ -20,6 +20,10 @@ const PROPOSAL_ABI = [
   'function noToken() view returns (address)',
   'function collateral() view returns (address)',
   'function state() view returns (uint8)',
+  'function auctionEndBlock() view returns (uint64)',
+  'function liveEnd() view returns (uint256)',
+  'function settleAuctions()',
+  'function resolve()',
 ];
 const CCA_ABI = [
   'function clearingPrice() view returns (uint256)',
@@ -544,4 +548,41 @@ async function runMarketDemo(proposalAddress, proposalId) {
   }
 }
 
-module.exports = { runAuctionDemo, runMarketDemo, getRun };
+// ---------------------------------------------------------------------------
+// Time skip: jump the chain past the current phase (fork-only, like dev.sh skip)
+// ---------------------------------------------------------------------------
+async function skipPhase(proposalAddress) {
+  const provider = getProvider();
+  const [w] = demoWallets(provider);
+  const proposal = new ethers.Contract(proposalAddress, PROPOSAL_ABI, w);
+  const state = Number(await proposal.state());
+
+  if (state === 0) {
+    // Auction ends by BLOCK — mine straight past the end block, then settle.
+    const [end, now] = await Promise.all([proposal.auctionEndBlock(), provider.getBlockNumber()]);
+    const delta = Number(end) - now + 1;
+    if (delta > 0) await provider.send('anvil_mine', ['0x' + delta.toString(16)]);
+    try {
+      await waitTx(proposal.settleAuctions(feeJitter()), w);
+    } catch (_) { /* backend monitor may have settled first — state check below */ }
+    return { skipped: 'auction', state: Number(await proposal.state()) };
+  }
+
+  if (state === 1) {
+    // Live ends by TIMESTAMP — warp past liveEnd, then resolve.
+    const [liveEnd, block] = await Promise.all([proposal.liveEnd(), provider.getBlock('latest')]);
+    const delta = Number(liveEnd) - Number(block.timestamp) + 1;
+    if (delta > 0) {
+      await provider.send('evm_increaseTime', [delta]);
+      await provider.send('anvil_mine', ['0x1']);
+    }
+    try {
+      await waitTx(proposal.resolve(feeJitter()), w);
+    } catch (_) { /* monitor may resolve it seconds later */ }
+    return { skipped: 'live', state: Number(await proposal.state()) };
+  }
+
+  return { skipped: 'nothing', state };
+}
+
+module.exports = { runAuctionDemo, runMarketDemo, getRun, skipPhase };

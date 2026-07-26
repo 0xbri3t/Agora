@@ -6,7 +6,7 @@
 // single truncated line, never a wall of text.
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Loader2, Play } from "lucide-react"
+import { FastForward, Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
 import { useAccount } from "wagmi"
 
@@ -53,6 +53,27 @@ export function DemoControls({ proposalId, admin }: { proposalId: string; admin?
     }
   }
 
+  const [skipping, setSkipping] = useState(false)
+
+  // Jumps the chain past the current phase: auction → mines to the end block
+  // and settles; live → warps past liveEnd and resolves.
+  const skip = async () => {
+    setSkipping(true)
+    try {
+      const res = await fetch(`${API_BASE}/demo/${proposalId}/skip`, { method: "POST" })
+      let data: any = null
+      try { data = await res.json() } catch { /* non-JSON error body */ }
+      if (!res.ok) throw new Error(data?.error || `skip failed (${res.status})`)
+      if (data?.skipped === "auction") toast.success("Auction skipped — settling into the live market")
+      else if (data?.skipped === "live") toast.success("Live period skipped — resolving")
+      else toast.info("Nothing to skip in the current phase")
+    } catch (e: any) {
+      toast.error("Skip failed", { description: clip(String(e?.message ?? e)) })
+    } finally {
+      setSkipping(false)
+    }
+  }
+
   const auctionRunning = status?.auction?.running ?? false
   const marketRunning = status?.market?.running ?? false
   const anyRunning = auctionRunning || marketRunning
@@ -70,6 +91,10 @@ export function DemoControls({ proposalId, admin }: { proposalId: string; admin?
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => start("market")} disabled={marketRunning}>
             {marketRunning ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
             Market
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={skip} disabled={skipping || anyRunning} title="Jump past the current phase">
+            {skipping ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <FastForward className="mr-1 h-3 w-3" />}
+            Skip
           </Button>
         </div>
       </div>
