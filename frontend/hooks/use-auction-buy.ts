@@ -7,6 +7,7 @@ import { parseUnits } from "viem"
 import { ethers } from "ethers"
 import { proposal_abi } from "@/contracts/proposal-abi"
 import { cca_abi, permit2_abi, PERMIT2_ADDRESS, q96ToPrice6d, price6dToQ96, snapToTick } from "@/contracts/cca-abi"
+import { getAuctionStartBlock } from "@/lib/cca-start-block"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { getContractAddress } from "@/contracts/constants"
 
@@ -87,10 +88,11 @@ export function useAuctionBuy({ proposalAddress, side }: { proposalAddress: `0x$
     }
   }, [publicClient, address, marketToken, usdcAddress, auctionAddress])
 
-  // Lightweight polling to keep clearing price up-to-date while auction is live
+  // Polling to keep clearing price up-to-date while auction is live. 12s, not
+  // 3s: the hook mounts once per side, so short ticks add up on a public RPC.
   useEffect(() => {
     if (!publicClient || !auctionAddress) return
-    const id = setInterval(() => { void refetchOnchain() }, 3000)
+    const id = setInterval(() => { void refetchOnchain() }, 12_000)
     return () => clearInterval(id)
   }, [publicClient, auctionAddress, refetchOnchain])
 
@@ -237,9 +239,7 @@ export function useAuctionBids({ auctionAddress }: { auctionAddress?: `0x${strin
       if (!publicClient || !address || !auctionAddress) return
       // Start at the auction's own first block: 'earliest' makes a forked node
       // forward the query upstream, where the block range is rejected.
-      const fromBlock = await publicClient.readContract({
-        address: auctionAddress, abi: cca_abi, functionName: 'startBlock',
-      }) as bigint
+      const fromBlock = await getAuctionStartBlock(publicClient, auctionAddress)
 
       const [submitted, claimedLogs] = await Promise.all([
         publicClient.getLogs({
