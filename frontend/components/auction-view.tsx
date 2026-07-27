@@ -236,19 +236,28 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   const [yesBidMarks, setYesBidMarks] = useState<BidMark[]>([])
   const [noBidMarks, setNoBidMarks] = useState<BidMark[]>([])
 
+  // Block timestamps are immutable, so cache them across polls; without this
+  // every 15s refresh re-fetched up to ~320 blocks per auction, one at a time.
+  // Caching the promise (not the value) also dedupes in-flight lookups when
+  // both auctions ask for the same block concurrently.
+  const blockTsCacheRef = useRef<Map<bigint, Promise<number>>>(new Map())
+  useEffect(() => { blockTsCacheRef.current = new Map() }, [publicClient])
+
   const fetchAuctionActivity = useCallback(async () => {
     if (!publicClient || !yesAuctionAddr || !noAuctionAddr) return
     const clearingEvt = cca_abi.find((e: any) => e.type === "event" && e.name === "ClearingPriceUpdated")
     const bidEvt = cca_abi.find((e: any) => e.type === "event" && e.name === "BidSubmitted")
     const exitEvt = cca_abi.find((e: any) => e.type === "event" && e.name === "BidExited")
-    const tsCache = new Map<bigint, number>()
-    const blockTs = async (bn: bigint) => {
-      const hit = tsCache.get(bn)
-      if (hit !== undefined) return hit
-      const b = await publicClient.getBlock({ blockNumber: bn })
-      const ts = Number(b.timestamp)
-      tsCache.set(bn, ts)
-      return ts
+    const blockTs = (bn: bigint) => {
+      const cache = blockTsCacheRef.current
+      let p = cache.get(bn)
+      if (!p) {
+        p = publicClient.getBlock({ blockNumber: bn }).then((b) => Number(b.timestamp))
+        // Drop failed lookups so a transient RPC error doesn't stick forever
+        p.catch(() => { if (cache.get(bn) === p) cache.delete(bn) })
+        cache.set(bn, p)
+      }
+      return p
     }
     const load = async (auction: `0x${string}`) => {
       const from: bigint = await publicClient.readContract({ address: auction, abi: cca_abi, functionName: "startBlock" }) as unknown as bigint
@@ -257,15 +266,14 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         publicClient.getLogs({ address: auction, event: bidEvt as any, fromBlock: from, toBlock: "latest" }),
         publicClient.getLogs({ address: auction, event: exitEvt as any, fromBlock: from, toBlock: "latest" }),
       ])
-      const history: PricePoint[] = []
-      for (const log of priceLogs.slice(-200)) {
+      const history: PricePoint[] = await Promise.all(priceLogs.slice(-200).map(async (log) => {
         const args: any = (log as any).args
-        history.push({
+        return {
           time: await blockTs(log.blockNumber!),
           price: Number(q96ToPrice6d(args.clearingPriceQ96 as bigint)) / 1_000_000,
           isCurrent: false,
-        })
-      }
+        }
+      }))
       history.sort((a, b) => a.time - b.time)
       // Active bids -> cumulative demand at or above each max price (USDC 6d)
       const exited = new Set(exitLogs.map((l: any) => (l.args.bidId as bigint).toString()))
@@ -282,15 +290,14 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         return point
       })
       // Bid marks for the price chart: when it landed, at what max price, how big
-      const marks: BidMark[] = []
-      for (const l of activeLogs.slice(-120)) {
+      const marks: BidMark[] = await Promise.all(activeLogs.slice(-120).map(async (l) => {
         const a: any = (l as any).args
-        marks.push({
+        return {
           time: await blockTs(l.blockNumber!),
           price: Number(q96ToPrice6d(a.priceQ96 as bigint)) / 1_000_000,
           amount: Number(a.amount as bigint) / 1_000_000,
-        })
-      }
+        }
+      }))
       return { history, demand, marks }
     }
     try {
