@@ -315,12 +315,15 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   }, [publicClient, yesAuctionAddr, noAuctionAddr])
 
   useEffect(() => {
+    // History/demand/marks only feed the chart — the page mounts a second
+    // AuctionView in stats mode, which must not duplicate this polling.
+    if (mode === "stats") return
     void fetchAuctionActivity()
     const id = setInterval(() => { void fetchAuctionActivity() }, 15_000)
     const onTx = () => { void fetchAuctionActivity() }
     window.addEventListener("auction:tx", onTx)
     return () => { clearInterval(id); window.removeEventListener("auction:tx", onTx) }
-  }, [fetchAuctionActivity])
+  }, [fetchAuctionActivity, mode])
 
   // Live clock: tick every second (offset-corrected to the chain) so the
   // current price point and the released-supply line crawl smoothly between
@@ -491,6 +494,9 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
   }, [publicClient, yesAuctionAddr, noAuctionAddr, yesTokenAddr, noTokenAddr, address, treasuryAddr])
 
   useEffect(() => {
+    // Balances/raised only feed the stats section — the chart-mode mount of
+    // this component must not duplicate the sweep.
+    if (mode === "chart") return
     const onTx = () => { void refetchNow() }
     window.addEventListener("auction:tx", onTx)
     // Prime once on mount for immediate freshness
@@ -502,7 +508,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       window.removeEventListener("auction:tx", onTx)
       clearInterval(id)
     }
-  }, [refetchNow])
+  }, [refetchNow, mode])
 
   // Keep overrides in sync with baseline reads if they were not set yet
   useEffect(() => { if (yesBalOverride === undefined && typeof yesUserBal === "bigint") setYesBalOverride(yesUserBal) }, [yesBalOverride, yesUserBal])
