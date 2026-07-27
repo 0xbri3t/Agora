@@ -14,6 +14,7 @@ import { useAccount, useReadContract, usePublicClient } from "wagmi"
 import { proposal_abi } from "@/contracts/proposal-abi"
 import { marketToken_abi } from "@/contracts/marketToken-abi"
 import { cca_abi, q96ToPrice6d } from "@/contracts/cca-abi"
+import { getAuctionStartBlock } from "@/lib/cca-start-block"
 import { treasury_abi } from "@/contracts/treasury-abi"
 import { ProposalStatus } from "@/lib/types"
 import { RollingNumber } from "@/components/ui/rolling-number"
@@ -260,7 +261,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
       return p
     }
     const load = async (auction: `0x${string}`) => {
-      const from: bigint = await publicClient.readContract({ address: auction, abi: cca_abi, functionName: "startBlock" }) as unknown as bigint
+      const from: bigint = await getAuctionStartBlock(publicClient, auction)
       const [priceLogs, bidLogs, exitLogs] = await Promise.all([
         publicClient.getLogs({ address: auction, event: clearingEvt as any, fromBlock: from, toBlock: "latest" }),
         publicClient.getLogs({ address: auction, event: bidEvt as any, fromBlock: from, toBlock: "latest" }),
@@ -464,7 +465,7 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
         const bidEvent = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidSubmitted') as any
         const exitEvent = cca_abi.find((f: any) => f.type === 'event' && f.name === 'BidExited') as any
         const sumSide = async (auctionAddr: string) => {
-          const fromBlock = await publicClient.readContract({ address: auctionAddr as any, abi: cca_abi, functionName: 'startBlock' }) as bigint
+          const fromBlock = await getAuctionStartBlock(publicClient, auctionAddr)
           const [submitted, exited] = await Promise.all([
             publicClient.getLogs({ address: auctionAddr as any, event: bidEvent, fromBlock }),
             publicClient.getLogs({ address: auctionAddr as any, event: exitEvent, fromBlock }),
@@ -494,8 +495,9 @@ export function AuctionView({ auctionData, userBalance, proposalAddress, mode = 
     window.addEventListener("auction:tx", onTx)
     // Prime once on mount for immediate freshness
     void refetchNow()
-    // Poll every 3 seconds to reflect other users' actions
-    const id = setInterval(() => { void refetchNow() }, 3_000)
+    // Poll to reflect other users' actions. 12s, not 3s: each tick sweeps
+    // both CCAs' logs, which is heavy against a public RPC.
+    const id = setInterval(() => { void refetchNow() }, 12_000)
     return () => {
       window.removeEventListener("auction:tx", onTx)
       clearInterval(id)
